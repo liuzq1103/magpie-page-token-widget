@@ -80,21 +80,50 @@
       if (response.ok) overview = await response.json();
     } catch { /* The list stays empty when the service cannot be reached. */ }
     if (!overview || !Array.isArray(overview.subscriptions)) return;
+    // A family names all of its accounts, a name with an account names that
+    // one. The list shows every account, and one of them is on when its
+    // family or its own name is chosen.
     const chosen = new Set(state.display?.subscriptions || []);
     const all = chosen.has("*");
+    const isOn = (subscription) =>
+      all || chosen.has(subscription.provider) || chosen.has(subscription.id);
     list.innerHTML = overview.subscriptions
       .map(
         (subscription) => `<label><input type="checkbox" value="${subscription.id}"${
-          all || chosen.has(subscription.id) ? " checked" : ""
+          isOn(subscription) ? " checked" : ""
         } /> ${subscription.label || subscription.id}</label>`
       )
       .join("");
     list.addEventListener("change", async () => {
-      const picked = [...list.querySelectorAll("input")].map((input) => input.value);
+      const checked = new Set(
+        [...list.querySelectorAll("input")]
+          .filter((input) => input.checked)
+          .map((input) => input.value)
+      );
+      // The family is kept as it is when every account of it is on, otherwise
+      // the accounts that are on are named one by one.
+      const families = new Map();
+      for (const subscription of overview.subscriptions) {
+        const family = subscription.provider || subscription.id;
+        if (!families.has(family)) families.set(family, []);
+        families.get(family).push(subscription.id);
+      }
+      const next = [];
+      for (const [family, ids] of families) {
+        const on = ids.filter((id) => checked.has(id));
+        if (!on.length) continue;
+        if (on.length === ids.length) next.push(family);
+        else next.push(...on);
+      }
+      if (!next.length) {
+        text("subNote", "至少要留一家订阅，中号和大号组件才有内容。");
+        return;
+      }
+      text("subNote", "已经记下，手机上的组件下一次刷新就会跟着变。");
       await fetch("api/v1/console/options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriptions: picked.length ? picked : ["*"] }),
+        body: JSON.stringify({ subscriptions: next }),
       });
     });
   };
