@@ -1,0 +1,65 @@
+{
+  "name": "magpie-page-token-widget",
+  "version": "0.1.0",
+  "description": "An iPhone home screen widget for Magpie subscription quotas: install the plugin, scan a code, and the widget shows each subscription's remaining quota.",
+  "type": "module",
+  "main": "./index.mjs",
+  "files": [
+    "index.mjs",
+    "lib",
+    "page",
+    "scriptable",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "magpie": ">=0.1.3681",
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liuzq1103/magpie-page-token-widget.git"
+  },
+  "keywords": [
+    "magpie",
+    "magpie-page",
+    "scriptable",
+    "tailscale",
+    "quota",
+    "usage"
+  ],
+  "magpie": {
+    "name": "iPhone 额度组件",
+    "summary": {
+      "zh": "把 iPhone 桌面额度组件接进 Magpie：装好插件后扫码配对，手机上直接显示各家套餐的剩余额度。",
+      "en": "Brings the iPhone home screen quota widget to Magpie: install the plugin, scan a code, and each subscription's remaining quota appears on the phone."
+    },
+    "icon": "page/icon.svg",
+    "page": {
+      "title": "iPhone 额度组件",
+      "titles": {
+        "zh": "iPhone 额度组件",
+        "zh-TW": "iPhone 額度小工具",
+        "ja": "iPhone 残量ウィジェット",
+        "de": "iPhone-Kontingent-Widget",
+        "en": "iPhone quota widget"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg",
+      "service": {
+        "port": 8790,
+        "option": "port"
+      }
+    },
+    "permissions": [],
+    "options": {
+      "port": 8790,
+      "gatewayURL": "http://127.0.0.1:3425"
+    }
+  }
+}
