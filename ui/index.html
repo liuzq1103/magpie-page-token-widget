@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh" data-theme="__THEME__">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="service-token" content="__SERVICE_TOKEN__" />
     <title>iPhone 额度组件</title>
-    <link rel="stylesheet" href="console.css" />
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <main>
@@ -36,8 +37,7 @@
         <h2>显示哪些订阅</h2>
         <div id="subscriptions" class="checks"></div>
         <p class="note">
-          这里改的是中号和大号组件里的内容。勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。
-          小号组件用自己的参数选一张：codex、minimax、glm，或 codex@账号名。
+          这里改的是中号和大号组件里的内容。勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。小号组件用自己的参数选一张：codex、minimax、glm，或 codex@账号名。
         </p>
         <p class="note" id="subNote"></p>
       </section>
@@ -45,16 +45,14 @@
       <section class="card">
         <h2>在 iPhone 上</h2>
         <ol>
-          <li>iPhone 连上同一个 Tailscale。</li>
-          <li>用相机扫上面的码，打开配对页。</li>
-          <li>下载组件脚本，在下载列表里用 Scriptable 打开它。</li>
-          <li>长按桌面空白处，添加 Scriptable 小组件，选择 UsageWidget。</li>
+          <li>手机和电脑连在同一个 Tailscale 里。</li>
+          <li>用相机扫上面的二维码，打开配对页。</li>
+          <li>在下载列表里用 Scriptable 打开下载的脚本。</li>
+          <li>长按 iPhone 桌面，添加 Scriptable 小组件，选 UsageWidget。</li>
         </ol>
         <p class="note" id="lifetime"></p>
       </section>
     </main>
-    <script src="console-state.js"></script>
-    <script src="console.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>
-
