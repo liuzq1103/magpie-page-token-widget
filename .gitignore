@@ -4,3 +4,6 @@ node_modules/
 Thumbs.db
 
 *.tgz
+
+# The files that a sync tool leaves behind while it uploads.
+*.uploading.cfg

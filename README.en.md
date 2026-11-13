@@ -40,7 +40,7 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 4. Open the downloaded `UsageWidget.js` in the Files app and choose "Share → Open with Scriptable".
 5. Long press the home screen, add the Scriptable widget and pick `UsageWidget`.
 
-The pairing code works once and lives ten minutes at most: after that it is dead, and a new one replaces it at once. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
+The pairing code works once and lives ten minutes at most: after that it is dead, and the plugin page makes a new one by itself (there is nothing to click), so the first pairing after the install needs no extra click. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
 
 There is no shared token any more. The one token that 0.1 gave to every phone is gone the moment the service is updated, so a phone that still holds it has to pair once more and get a token of its own.
 
@@ -120,6 +120,14 @@ The forwarding points at the phone side of the service (by default one port abov
 The plugin writes down the forwarding it made (the port and where it points) in its own file. After a restart it recognizes it and does not make it twice; a forwarding of an older version is moved to the phone side; the forwarding of somebody else is neither touched nor removed. It is taken away only when the plugin is uninstalled properly and the forwarding still points where it was written down.
 
 `tailscale serve --bg --tcp=8790` is a standing setting of Tailscale: it stays there when the plugin is removed or crashes. `tailscale serve status` shows what is published right now.
+
+The port is the address the plugin listens on when it starts, and the plugin cannot move itself, so it stays a startup parameter of Magpie. The gateway is a different matter, see the next section.
+
+## The gateway
+
+The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. If your Magpie listens on another port, change it in the plugin page under **Advanced settings**: the next reading comes from the new address, and neither Magpie nor the plugin has to be restarted.
+
+Only the Magpie of this computer is allowed (`127.0.0.1`, `localhost` or `[::1]`); any other address is refused, because this service must read nothing but the Magpie on this computer.
 
 ## Compatibility
 
