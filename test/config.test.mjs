@@ -272,3 +272,54 @@ test('the gateway of Magpie is still there after the service starts again', asyn
     await cleanup(local);
   }
 });
+
+test('a gateway that is refused changes nothing at all', async () => {
+  const local = await tempDir();
+  const service = await start(local);
+  try {
+    const token = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
+    const home = `http://127.0.0.1:${service.port}`;
+    const before = await (await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
+    const refused = await post(home, '/api/v1/console/options', {
+      gatewayURL: 'http://example.com',
+      subscriptions: ['codex'],
+    }, { [TOKEN_HEADER]: token });
+    assert.equal(refused.status, 400);
+    const after = await (await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
+    // The choice of the subscriptions is untouched by the refused body.
+    assert.deepEqual(after.display.subscriptions, before.display.subscriptions);
+    assert.equal(after.upstream, before.upstream);
+  } finally {
+    await service.close();
+    await cleanup(local);
+  }
+});
+
+test('the gateway of Magpie may be written in several ways', async () => {
+  const local = await tempDir();
+  const service = await start(local);
+  try {
+    const token = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
+    const home = `http://127.0.0.1:${service.port}`;
+    const written = {
+      'http://127.0.0.1:3999': 'http://127.0.0.1:3999',
+      'HTTP://127.0.0.1:3999': 'http://127.0.0.1:3999',
+      'http://127.0.0.1:3999/': 'http://127.0.0.1:3999',
+      'http://localhost:3999': 'http://localhost:3999',
+    };
+    for (const [value, expected] of Object.entries(written)) {
+      const answer = await post(home, '/api/v1/console/options', { gatewayURL: value }, { [TOKEN_HEADER]: token });
+      assert.equal(answer.status, 200, value);
+      assert.equal((await answer.json()).upstream, expected, value);
+    }
+    // The address of another computer is refused, and so is a name that only
+    // looks like this computer.
+    for (const value of ['http://example.com', 'http://127.0.0.1.evil.com', 'http://user:pass@127.0.0.1:3425', 'http://[::2]:3425']) {
+      const answer = await post(home, '/api/v1/console/options', { gatewayURL: value }, { [TOKEN_HEADER]: token });
+      assert.equal(answer.status, 400, value);
+    }
+  } finally {
+    await service.close();
+    await cleanup(local);
+  }
+});

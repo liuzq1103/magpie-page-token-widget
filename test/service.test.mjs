@@ -310,3 +310,12 @@ test('a request from the tailnet is not one of this computer', async () => {
   const onConsole = await get('/api/v1/console/state', { [TOKEN_HEADER]: state.consoleToken });
   assert.equal(onConsole.status, 200);
 });
+
+test('the console counts the time of the pairing code itself', async () => {
+  // The time left is counted on the page, from the moment the code was made.
+  // If the page used the number the server sent when it was opened, the code
+  // would never be renewed.
+  const script = await readFile(path.join(root, 'ui', 'app.js'), 'utf8');
+  assert.equal(script.includes('pairingExpiresAt'), true);
+  assert.equal(script.includes('pairingLeft(state)'), true);
+});

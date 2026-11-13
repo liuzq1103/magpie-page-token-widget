@@ -274,7 +274,7 @@
       ['服务端口', mono(String(state.port ?? '—'))],
       ['手机端口', mono(String(state.phonePort ?? '—'))],
       ['Magpie 网关', mono(state.upstream || '—')],
-      ['配对码剩余时间', remainingText(state.pairingExpiresIn)],
+      ['配对码剩余时间', remainingText(pairingLeft(state))],
       ['本插件的转发', forward.owned ? mono(`${forward.owned.publishedPort} → ${forward.owned.target}`) : '还没有记录'],
       ['配对记录', `${(state.paired || []).length} 条`],
     ]);
@@ -344,8 +344,16 @@
     };
   };
 
-  // How long the pairing code is still good. Under a minute the seconds
-  // are shown, so a code that is about to die does not look like a dead one.
+  // How long the pairing code is still good. The time is counted here, on
+  // the page, so that the numbers do not stand still while the page is open.
+  const pairingLeft = (state) => {
+    const until = Date.parse(state?.pairingExpiresAt || '');
+    if (!Number.isFinite(until)) return 0;
+    return Math.max(0, Math.round((until - Date.now()) / 1000));
+  };
+
+  // Under a minute the seconds are shown, so a code that is about to die does
+  // not look like a dead one.
   const remainingText = (seconds) => {
     const left = Math.max(0, Math.round(seconds || 0));
     if (!left) return '已经作废';
@@ -364,7 +372,7 @@
       state.pairingBlocked
         ? `猜错的次数太多，配对先关上 ${blocked} 分钟。点「重新生成配对码」可以马上再开。`
         : state.pairingURL
-          ? `配对码只能用一次，十分钟后也会作废（${remainingText(state.pairingExpiresIn)}）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
+          ? `配对码只能用一次，十分钟后也会作废（${remainingText(pairingLeft(state))}）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
           : 'Tailscale 没有连上，或者这台电脑没有尾网地址。手机和电脑要在同一个 Tailscale 里。'
     );
   };
@@ -387,13 +395,19 @@
   // A pairing code that has run out is of no use to anybody. A new one is
   // made at once, so the first pairing after the install needs no extra click.
   const renewPairing = async () => {
-    if (!current || (current.pairingExpiresIn || 0) > 0) return false;
+    if (!current) return false;
+    if (pairingLeft(current) > 0) {
+      // The note counts down on the page itself.
+      renderPairing(current);
+      return false;
+    }
     try {
       const result = await api('api/v1/console/pair', { method: 'POST', body: '{}' });
       current = result;
       renderPairing(result);
       return true;
     } catch {
+      text('pairNote', '没能换一个新的配对码，过一会儿再试一次。');
       return false;
     }
   };

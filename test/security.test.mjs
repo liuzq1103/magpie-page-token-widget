@@ -433,10 +433,13 @@ test('the page of the pairing code and the script are shut out as well', async (
   }
 });
 
-test('the file of the state belongs to the user of this computer alone', async () => {
+test('the file of the state belongs to the user of this computer alone', async (t) => {
   // Windows does not keep the rights of a file, so the check is only of
   // meaning on the other systems.
-  if (process.platform === 'win32') return;
+  if (process.platform === 'win32') {
+    t.skip('Windows does not keep the rights of a file');
+    return;
+  }
   const file = path.join(dir, 'state.json');
   const mode = (await stat(file)).mode & 0o777;
   assert.equal(mode, 0o600);
