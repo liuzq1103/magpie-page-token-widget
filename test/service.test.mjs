@@ -159,6 +159,20 @@ test('the setup script of the phone carries the port of this service', async () 
   assert.match(source, /const SETTINGS_KEY = "ameaq-rmrcxu-b2";/);
 });
 
+test('the small widget is never empty because of an old parameter', async () => {
+  const source = await readFile(path.join(root, 'scriptable', 'UsageWidget.js'), 'utf8');
+  // A parameter that names an account that was renamed finds nothing; the
+  // first card is shown instead and the note says what was not found.
+  assert.match(source, /const card = found \|\| data\.subscriptions\[0\];/);
+  assert.match(source, /没有找到/);
+  // Every number says which way it is read.
+  assert.match(source, /function direction\(\)/);
+  // The bar is ink in the night mode as well; a bright bar was read as a
+  // warning, and a warning that means "plenty left" turns the card upside
+  // down.
+  assert.doesNotMatch(source, /#b9c8b0/);
+});
+
 test('the page of the phone explains the three steps', async () => {
   const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
   const consoleState = await rotated.json();

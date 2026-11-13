@@ -390,6 +390,15 @@
       input.value = subscription.id;
       input.checked = all || chosen.has(family) || chosen.has(subscription.id);
       label.append(input, document.createTextNode(subscription.label || subscription.id));
+      // The small widget is told which card to show with a parameter. The
+      // names it understands are written here, so an old one (an account that
+      // was renamed) can be seen and replaced.
+      const names = [subscription.provider || subscription.id];
+      if (subscription.account) names.push(subscription.id);
+      const hint = document.createElement('span');
+      hint.className = 'tag';
+      hint.textContent = '参数 ' + names.join(' / ');
+      label.append(document.createTextNode(' · '), hint);
       list.append(label);
     }
     list.onchange = async () => {

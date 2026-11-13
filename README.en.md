@@ -116,8 +116,12 @@ The page opens with the read-only token of the widget. The token travels in the 
 | Size | Shows | Widget Parameter |
 |---|---|---|
 | Small | one quota, the reset countdown, today's tokens | `codex` (default), `minimax`, `glm`; one account is written `codex@<account>`; `\|used` shows what is used |
-| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens | empty; `page=2` for the second page |
+| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens; the weekly limit, when there is one, on the same line as the reset time (with 5–6 subscriptions in two rows only the 5-hour quota fits) | empty; `page=2` for the second page |
 | Large | up to 6 per page; two columns with the quota, the reset and the second window; today's and the last seven days | empty; `page=2` for the second page |
+
+The account in a parameter is the account as it is called now. The console writes the parameters the widget understands next to every subscription, so one can be copied from there. When an account is renamed the parameter finds nothing, and the small widget is no longer empty: it shows the first card and writes "not found" next to it.
+
+Every number says which way it is read: "remaining" or "used". The bar is the same ink in the light and in the dark (only the depth differs), so it is not read as a warning at night; only the number turns orange or red when the quota is nearly gone.
 
 ## Lifetime
 

@@ -58,7 +58,10 @@ const colors = {
   text: Color.dynamic(new Color("#232523"), new Color("#ebeee7")),
   muted: Color.dynamic(new Color("#8a8f85"), new Color("#92998d")),
   track: dark ? new Color("#30362d") : new Color("#eef0eb"),
-  fill: dark ? new Color("#b9c8b0") : new Color("#4c544a"),
+  // Ink in both appearances. A bright bar in the night mode was read as a
+  // warning, and a warning that really means "plenty left" turns the reading
+  // of the whole card upside down.
+  fill: dark ? new Color("#8b9384") : new Color("#6b7268"),
   warning: new Color(dark ? "#d2a061" : "#b77c36"),
   critical: new Color(dark ? "#e09c88" : "#b35447")
 };
@@ -139,6 +142,15 @@ function shortenName(label, size, width) {
   while (keep > 1 && nameWidth(label.slice(0, keep) + "…") * size * minimumScale > width) keep--;
   return label.slice(0, keep) + "…";
 }
+// The word in front of every number. Without it the bar and the number can
+// be read the wrong way round, and the night mode makes that worse.
+function direction() { return showUsed ? "已用" : "剩余"; }
+// The name of a card is the name of the vendor and, when it has one, the
+// account of it.
+function splitLabel(label) {
+  const parts = String(label).split("·").map(part => part.trim()).filter(Boolean);
+  return { vendor: parts[0] || String(label), account: parts.slice(1).join(" · ") };
+}
 function expired(window) {
   return window.expired || !!window.resetsAt && Date.parse(window.resetsAt) <= Date.now();
 }
@@ -203,7 +215,7 @@ function bar(parent, window, width) {
 function header(status) {
   const row = widget.addStack(); row.centerAlignContent();
   if (family !== "small") row.size = new Size(layout.width, layout.header);
-  text(row, "usage.", 15, colors.text, "medium"); row.addSpacer();
+  text(row, "usage.", 12, colors.muted, "medium"); row.addSpacer();
   text(row, status, 9, cached ? colors.warning : colors.muted);
 }
 // The parameter is read once: a subscription to show, a page and a direction.
@@ -225,17 +237,22 @@ function subscriptionGrid(parent, cards, sharedWindow) {
   const tight = large ? dimensions.height < 345 : dimensions.height < 155;
   // A cell that has several accounts of one vendor carries a longer name, so a
   // narrow cell takes a smaller title font to keep the account readable.
+  // The account of a card needs a line of its own; the weekly limit needs
+  // one too. Where there is no room for them, they are left out.
   const style = large
     ? dense
-      ? { name: tight ? 10 : 11, value: tight ? 20 : 24, reset: 8, secondary: 8, titleGap: 2, barGap: 3, resetGap: 3, rowGap: 8 }
-      : { name: 12, value: 34, reset: 10, secondary: 10, titleGap: 4, barGap: 6, resetGap: 5, rowGap: 16 }
+      ? { name: tight ? 11 : 12, value: tight ? 20 : 24, reset: 8, secondary: 8, account: 9, titleGap: 2, barGap: 3, resetGap: 3, rowGap: 8 }
+      : { name: 13, value: 34, reset: 10, secondary: 10, account: 9, titleGap: 4, barGap: 6, resetGap: 5, rowGap: 16 }
     : dense
-      ? { name: tight ? 9 : 10, value: tight ? 18 : 20, titleGap: 1, barGap: 1, rowGap: tight ? 4 : 6 }
-      : { name: cellWidth < 67 ? 9 : 11, value: cellWidth < 67 ? 24 : 28, reset: cellWidth < 64 ? 9 : 10, titleGap: 4, barGap: 6, resetGap: 6, rowGap: 0 };
+      ? { name: tight ? 10 : 11, value: tight ? 18 : 20, titleGap: 1, barGap: 1, resetGap: 3, rowGap: tight ? 4 : 6, account: 0, secondary: 0, reset: 9 }
+      : { name: 12, value: cellWidth < 67 ? 22 : 25, reset: cellWidth < 64 ? 9 : 10, titleGap: 3, barGap: 5, resetGap: 5, rowGap: 0, account: 9, secondary: 9 };
   const grid = parent.addStack(); grid.layoutVertically(); grid.size = new Size(layout.width, 0);
   // Every name of the page takes the size that fits the narrowest of them, so
   // the cards keep one title size.
-  const names = cards.map(card => fitName(card.label, style.name, cellWidth));
+  // The dense large family has no line of its own for the account, so it
+  // goes with the name of the vendor.
+  const titleText = card => large && dense ? card.label : splitLabel(card.label).vendor;
+  const names = cards.map(card => fitName(titleText(card), style.name, cellWidth));
   const nameSize = names.length ? Math.min(...names.map(name => name.size)) : style.name;
   for (let start = 0; start < cards.length; start += columns) {
     if (start) grid.addSpacer(style.rowGap);
@@ -246,25 +263,54 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       const card = cards[start + index];
       if (!card) continue; // Keep the final card aligned with the previous rows.
       const primary = card.windows[0] || emptyWindow;
-      text(column, shortenName(card.label, nameSize, cellWidth), nameSize, colors.muted, "medium");
+      // The name of the vendor is the name of the card; the account of it goes
+      // under it when there is a line for it.
+      const parts = splitLabel(card.label);
+      const inline = large && dense && parts.account;
+      const accountSize = Math.max(7, Math.min(9, nameSize - 3));
+      const vendor = inline ? parts.vendor + " · " + parts.account : parts.vendor;
+      text(column, shortenName(vendor, inline ? accountSize : nameSize, cellWidth), inline ? accountSize : nameSize, colors.text, "medium");
+      if (parts.account && style.account && !inline) {
+        column.addSpacer(1);
+        text(column, shortenName(parts.account, accountSize, cellWidth), accountSize, colors.muted);
+      }
       column.addSpacer(style.titleGap);
       const valueRow = column.addStack(); valueRow.centerAlignContent();
+      // A narrow cell has no room for the whole word, and the footer of the
+      // widget says which way the numbers are read.
+      const word = large || cellWidth >= 78 ? direction() : (showUsed ? "用" : "剩");
+      text(valueRow, word, large ? 12 : 9, colors.muted);
+      valueRow.addSpacer(2);
       text(valueRow, percent(primary), style.value, accent(primary), "medium");
       if (!large && dense && !sharedWindow) {
         valueRow.addSpacer(); text(valueRow, windowLabel(primary), 8, colors.muted);
       }
       column.addSpacer(style.barGap);
       bar(column, primary, cellWidth);
-      if (large || !dense) {
+      const secondary = card.windows[1];
+      if (large) {
+        if (!dense) {
+          column.addSpacer(style.resetGap);
+          const label = (sharedWindow ? "" : windowLabel(primary) + " · ") + shortReset(primary);
+          const size = sharedWindow ? style.reset : Math.min(style.reset, cellWidth < 64 ? 8 : 9);
+          text(column, label, size, colors.muted);
+        }
+        // The second window is the weekly limit. The large family has a line
+        // of its own for it.
+        if (secondary) {
+          column.addSpacer(dense ? 2 : 3);
+          text(column, windowLabel(secondary) + (showUsed ? " 已用 " : " 剩余 ") + percent(secondary), style.secondary, accent(secondary));
+        }
+      } else if (!dense) {
+        // The medium family has one line for the reset and for the weekly
+        // limit; two lines do not fit above the bar of a cell.
         column.addSpacer(style.resetGap);
-        const label = (sharedWindow ? "" : windowLabel(primary) + " · ") + shortReset(primary);
-        const size = sharedWindow ? style.reset : Math.min(style.reset, cellWidth < 64 ? 8 : 9);
-        text(column, label, size, colors.muted);
-      }
-      if (large && card.windows[1]) {
-        const secondary = card.windows[1];
-        column.addSpacer(dense ? 2 : 4);
-        text(column, windowLabel(secondary) + (showUsed ? " 已用 " : " 剩余 ") + percent(secondary), style.secondary, accent(secondary));
+        const parts = [];
+        if (!sharedWindow) parts.push(windowLabel(primary) + " · ");
+        parts.push(shortReset(primary));
+        if (secondary && style.secondary) parts.push(" · " + windowLabel(secondary) + " " + percent(secondary));
+        const size = Math.min(style.reset, cellWidth < 64 ? 8 : 9);
+        text(column, shortenName(parts.join(""), size, cellWidth), size, colors.muted);
       }
     }
   }
@@ -288,15 +334,32 @@ if (!settings || !data || data.schemaVersion !== 1) {
     // it is written: two accounts of one vendor may differ in their case only.
     const exact = data.subscriptions.find(c => c.id === requested);
     const same = data.subscriptions.filter(c => String(c.id).toLowerCase() === requested.toLowerCase());
-    const card = exact || (same.length === 1 ? same[0] : null)
-      || data.subscriptions.find(c => c.provider === requested.toLowerCase());
+    // A vendor is matched before an account: an account of another vendor
+    // may carry the name of this one.
+    const byProvider = data.subscriptions.find(c => c.provider === requested.toLowerCase());
+    const byAccount = data.subscriptions.find(c => String(c.account || "").toLowerCase() === requested.toLowerCase());
+    const found = exact || (same.length === 1 ? same[0] : null) || byProvider || byAccount;
+    // The account of a card can be renamed; an old parameter then finds
+    // nothing. The first card is shown instead, and the note says so.
+    const card = found || data.subscriptions[0];
+    const missing = !found && Boolean(card);
     widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
     const name = widget.addStack();
     const title = fitName(card ? card.label : "暂无该套餐", 12, layout.width - 60);
-    text(name, title.label, title.size, colors.muted, "medium");
-    name.addSpacer(4); text(name, windowLabel(primary), 9, colors.muted);
-    widget.addSpacer(3); text(widget, percent(primary), 34, accent(primary), "medium");
+    text(name, title.label, title.size, colors.text, "medium");
+    name.addSpacer(4);
+    if (missing) {
+      // The note is shortened to the room that is left, so the name of the
+      // card and the note never fight for the same line.
+      text(name, shortenName("没有找到 " + requested, 8, Math.max(60, layout.width * 0.42)), 8, colors.warning);
+    }
+    else text(name, windowLabel(primary), 9, colors.muted);
+    widget.addSpacer(3);
+    const value = widget.addStack(); value.centerAlignContent();
+    text(value, direction(), 13, colors.muted);
+    value.addSpacer(4);
+    text(value, percent(primary), 34, accent(primary), "medium");
     widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
     text(widget, reset(primary), 9, colors.muted);
     if (card && card.windows[1]) {
