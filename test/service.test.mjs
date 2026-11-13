@@ -15,6 +15,8 @@ let port;
 let phonePort;
 let base;
 let phoneBase;
+// The token of one phone: a token of its own, handed over once.
+let phoneToken = '';
 
 const get = (route, headers = {}) => ask(base, route, headers);
 
@@ -24,6 +26,18 @@ const post = (route, value, headers = {}) =>
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(value || {}),
   });
+
+// A phone pairs: a new code, then the code is used once and the phone
+// gets a token of its own.
+const pairPhone = async (name) => {
+  await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
+  state = JSON.parse(await readFile(path.join(dataDir, 'state.json'), 'utf8'));
+  const answer = await post('/api/v1/session', { code: state.pairing.code, name });
+  assert.equal(answer.status, 200);
+  const body = await answer.json();
+  phoneToken = body.token;
+  return body;
+};
 
 before(async () => {
   dataDir = await tempDir();
@@ -76,10 +90,11 @@ test('the service tells that it is alive', async () => {
 });
 
 test('the overview is only read with the token', async () => {
+  await pairPhone('iPhone');
   const denied = await fetch(base + '/api/v1/overview');
   assert.equal(denied.status, 401);
   const allowed = await fetch(base + '/api/v1/overview', {
-    headers: { Authorization: 'Bearer ' + state.token },
+    headers: { Authorization: 'Bearer ' + phoneToken },
   });
   assert.equal(allowed.status, 200);
   const body = await allowed.json();
@@ -87,13 +102,15 @@ test('the overview is only read with the token', async () => {
 });
 
 test('a pairing code is worth one try', async () => {
+  await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
+  state = JSON.parse(await readFile(path.join(dataDir, 'state.json'), 'utf8'));
   const wrong = await post('/api/v1/session', { code: 'not-the-code' });
   assert.equal(wrong.status, 403);
   const right = await post('/api/v1/session', { code: state.pairing.code });
   assert.equal(right.status, 200);
   const body = await right.json();
-  // The phone gets a token of its own, not the shared one of the old version.
-  assert.notEqual(body.token, state.token);
+  // The phone gets a token of its own, not the token of the console.
+  assert.notEqual(body.token, state.consoleToken);
   assert.equal(typeof body.device.id, 'string');
   // The code is used once: the next try with the same code fails.
   const again = await post('/api/v1/session', { code: state.pairing.code });
@@ -121,7 +138,7 @@ test('the widget of the phone carries the pairing code', async () => {
 test('a phone that installs by hand gets the widget with its token', async () => {
   // The setup script of the phone knows the token, not the pairing code.
   const response = await fetch(base + '/scriptable/UsageWidget.js', {
-    headers: { Authorization: 'Bearer ' + state.token },
+    headers: { Authorization: 'Bearer ' + phoneToken },
   });
   assert.equal(response.status, 200);
   const source = await response.text();
@@ -163,7 +180,8 @@ test('the console answers with the token only', async () => {
   });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.token, state.token);
+  // The console holds no shared token any more.
+  assert.equal(body.token, undefined);
   assert.equal(typeof body.pairingCode, 'string');
   assert.equal(typeof body.qr, 'string');
   // The console never hands out the hash of a token.
@@ -262,7 +280,7 @@ test('the console and the phone side are two different rooms', async () => {
   // What the phone came for still works there.
   const overview = await ask(phoneBase, '/api/v1/overview', {
     host: `127.0.0.1:${port}`,
-    Authorization: 'Bearer ' + state.token,
+    Authorization: 'Bearer ' + phoneToken,
   });
   assert.equal(overview.status, 200);
 });

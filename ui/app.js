@@ -105,7 +105,6 @@
         tailnet.ios?.length ? tailnet.ios.map((phone) => phone.name).join('、') : '没有看到',
       ],
       ['Magpie 网关', mono(state.upstream || '—')],
-      ['旧版共享令牌', state.token ? '••••••••••••••••' : '已经撤掉'],
     ]);
   };
 
@@ -187,7 +186,7 @@
       meta.textContent = [
         `配对于 ${timeOf(device.createdAt)}`,
         `最后访问 ${device.lastAccessAt ? timeOf(device.lastAccessAt) : '还没有'}`,
-        device.legacy ? '旧版共享令牌' : '独立令牌',
+        '独立令牌',
         device.revokedAt ? `已撤销（${timeOf(device.revokedAt)}）` : '',
       ]
         .filter(Boolean)
@@ -374,7 +373,6 @@
   };
 
   element('copyLink')?.addEventListener('click', () => copy(current?.pairingURL, '配对链接'));
-  element('copyToken')?.addEventListener('click', () => copy(current?.token, '旧版共享令牌'));
   element('manualToken')?.addEventListener('click', async () => {
     const name = element('manualName')?.value?.trim() || '';
     try {

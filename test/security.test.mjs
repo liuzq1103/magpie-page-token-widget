@@ -217,9 +217,11 @@ test('the service starts again and the devices are still there', async () => {
   );
 });
 
-test('the phones of the old version keep working after the change', async () => {
-  // A state file of the old version: a shared token, a pairing code and the
-  // record of the phones that were paired before.
+test('the shared token of the old version is gone', async () => {
+  // A state file of the old version: a shared token, a pairing code and
+  // the record of the phones that were paired before. Nobody paired a phone
+  // with that version, so the shared token is taken away when the file is
+  // read, and a new phone pairs as if it were the first one.
   const oldDir = await tempDir();
   const legacyToken = 'legacy-shared-token-'.padEnd(43, 'x');
   await writeFile(
@@ -235,22 +237,25 @@ test('the phones of the old version keep working after the change', async () => 
   const old = await start(oldDir);
   const oldBase = `http://127.0.0.1:${old.port}`;
   try {
-    // The old token still opens the door of the phone.
+    // The shared token of the old version opens nothing.
     const answer = await fetch(oldBase + '/api/v1/overview', {
       headers: { Authorization: 'Bearer ' + legacyToken },
     });
-    assert.equal(answer.status, 200);
+    assert.equal(answer.status, 401);
 
-    const oldConsole = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8')).consoleToken;
+    const saved = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8'));
+    assert.equal(saved.token, undefined);
+    assert.equal(saved.devices.length, 0);
+
+    // The console of this computer keeps a token of its own.
+    const oldConsole = saved.consoleToken;
+    assert.equal(typeof oldConsole, 'string');
     await waitForConsole(oldBase, oldConsole);
     const body = await (await fetch(oldBase + '/api/v1/console/state', {
       headers: { [TOKEN_HEADER]: oldConsole },
     })).json();
-    // The shared token became the token of one old device, and it is still
-    // there.
-    const legacy = body.devices.find((device) => device.legacy);
-    assert.ok(legacy);
-    assert.equal(legacy.revokedAt, null);
+    assert.equal(body.devices.length, 0);
+    assert.equal(body.token, undefined);
 
     // A new phone gets a token of its own.
     const fresh = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8'));
@@ -262,25 +267,6 @@ test('the phones of the old version keep working after the change', async () => 
       headers: { Authorization: 'Bearer ' + pairedBody.token },
     });
     assert.equal(allowed.status, 200);
-
-    // Only when the old device is revoked do the old phones stop working.
-    const consoleToken = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8')).consoleToken;
-    const revoked = await post(
-      oldBase,
-      '/api/v1/console/device',
-      { id: legacy.id, action: 'revoke' },
-      { [TOKEN_HEADER]: consoleToken }
-    );
-    assert.equal(revoked.status, 200);
-    const gone = await fetch(oldBase + '/api/v1/overview', {
-      headers: { Authorization: 'Bearer ' + legacyToken },
-    });
-    assert.equal(gone.status, 401);
-    // The new phone is not touched by it.
-    const stillThere = await fetch(oldBase + '/api/v1/overview', {
-      headers: { Authorization: 'Bearer ' + pairedBody.token },
-    });
-    assert.equal(stillThere.status, 200);
   } finally {
     await old.close();
     await cleanup(oldDir);

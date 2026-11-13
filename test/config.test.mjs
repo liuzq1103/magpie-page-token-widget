@@ -154,8 +154,9 @@ test('the port of the service comes from the plugin and is kept', async () => {
   const state = JSON.parse(await readFile(file, 'utf8'));
   assert.equal(typeof state.consoleToken, 'string');
   assert.ok(state.consoleToken.length >= 32);
-  // The token of the console is not the token of the phones.
-  assert.notEqual(state.consoleToken, state.token);
+  // There is no shared token for the phones any more.
+  assert.equal(state.token, undefined);
+  assert.equal(Array.isArray(state.devices), true);
 });
 
 test('a damaged state file does not stop the service', async () => {
