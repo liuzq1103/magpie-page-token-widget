@@ -76,9 +76,13 @@
         <details>
           <summary>高级设置</summary>
           <dl id="advanced"></dl>
-          <p class="note">
-            服务端口和网关地址是 Magpie 插件的启动参数，要改请到 Magpie 的插件设置里改；这里只是显示，不改动。
-          </p>
+          <h3>Magpie 网关</h3>
+          <div class="row manual">
+            <input id="gateway" type="text" placeholder="http://127.0.0.1:3425" />
+            <button id="saveGateway" type="button">保存网关地址</button>
+          </div>
+          <p class="note" id="gatewayNote"></p>
+          <p class="note" id="portNote"></p>
         </details>
       </section>
 

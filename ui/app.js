@@ -274,10 +274,18 @@
       ['服务端口', mono(String(state.port ?? '—'))],
       ['手机端口', mono(String(state.phonePort ?? '—'))],
       ['Magpie 网关', mono(state.upstream || '—')],
-      ['配对码剩余时间', `${Math.max(0, Math.round((state.pairingExpiresIn || 0) / 60))} 分钟`],
+      ['配对码剩余时间', remainingText(state.pairingExpiresIn)],
       ['本插件的转发', forward.owned ? mono(`${forward.owned.publishedPort} → ${forward.owned.target}`) : '还没有记录'],
       ['配对记录', `${(state.paired || []).length} 条`],
     ]);
+    const gateway = element('gateway');
+    if (gateway && document.activeElement !== gateway) gateway.value = state.upstream || '';
+    text(
+      'portNote',
+      '端口是 Magpie 启动这个插件时给的参数，插件改不了自己听的端口，所以它不在这儿改。' +
+        '要换端口，在 Magpie 的插件设置里改（magpie plugin options magpie-page-token-widget \'{"port":8890}\'），' +
+        '改完重启 Magpie；手机那边的地址带着端口，换了端口手机要重新配对一次。'
+    );
   };
 
   const renderSubscriptions = (state) => {
@@ -336,22 +344,34 @@
     };
   };
 
-  const render = (state) => {
-    current = state;
+  // How long the pairing code is still good. Under a minute the seconds
+  // are shown, so a code that is about to die does not look like a dead one.
+  const remainingText = (seconds) => {
+    const left = Math.max(0, Math.round(seconds || 0));
+    if (!left) return '已经作废';
+    if (left < 60) return `还剩 ${left} 秒`;
+    return `还剩 ${Math.floor(left / 60)} 分 ${left % 60} 秒`;
+  };
+
+  const renderPairing = (state) => {
     const qr = element('qr');
     if (qr && state.qr) qr.src = state.qr;
     if (qr && !state.qr) qr.closest('.qr')?.classList.add('empty');
     text('pairingURL', state.pairingURL || '还没有找到 Tailscale 地址');
-    const minutes = Math.max(0, Math.round((state.pairingExpiresIn || 0) / 60));
     const blocked = Math.max(0, Math.round((state.pairingBlocked || 0) / 60));
     text(
       'pairNote',
       state.pairingBlocked
         ? `猜错的次数太多，配对先关上 ${blocked} 分钟。点「重新生成配对码」可以马上再开。`
         : state.pairingURL
-          ? `配对码只能用一次，十分钟后也会作废（还剩 ${minutes} 分钟）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
+          ? `配对码只能用一次，十分钟后也会作废（${remainingText(state.pairingExpiresIn)}）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
           : 'Tailscale 没有连上，或者这台电脑没有尾网地址。手机和电脑要在同一个 Tailscale 里。'
     );
+  };
+
+  const render = (state) => {
+    current = state;
+    renderPairing(state);
     text(
       'lifetime',
       '组件随 Magpie 运行：关掉 Magpie 之后，手机上显示的是上一次的结果，重新打开 Magpie 就会更新。'
@@ -364,15 +384,48 @@
     renderSubscriptions(state);
   };
 
+  // A pairing code that has run out is of no use to anybody. A new one is
+  // made at once, so the first pairing after the install needs no extra click.
+  const renewPairing = async () => {
+    if (!current || (current.pairingExpiresIn || 0) > 0) return false;
+    try {
+      const result = await api('api/v1/console/pair', { method: 'POST', body: '{}' });
+      current = result;
+      renderPairing(result);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const load = async () => {
     try {
       render(await api('api/v1/console/state'));
+      await renewPairing();
     } catch {
       text('pairNote', '这个页面没有连上本机的额度服务，关掉插件页面再打开一次。');
     }
   };
 
+  // The page stays open, so the code is looked at now and then. When it has
+  // run out, a new one is made without being asked for.
+  setInterval(() => { void renewPairing(); }, 30000);
+
   element('copyLink')?.addEventListener('click', () => copy(current?.pairingURL, '配对链接'));
+  element('saveGateway')?.addEventListener('click', async () => {
+    const value = element('gateway')?.value?.trim() || '';
+    try {
+      const result = await api('api/v1/console/options', {
+        method: 'POST',
+        body: JSON.stringify({ gatewayURL: value }),
+      });
+      current.upstream = result.upstream || value;
+      text('gatewayNote', '已经记下了，下一次读数就从这里拿。');
+      renderAdvanced(current);
+    } catch {
+      text('gatewayNote', '没有存上：网关只能是这台电脑上的 Magpie（http://127.0.0.1:3425）。');
+    }
+  });
   element('manualToken')?.addEventListener('click', async () => {
     const name = element('manualName')?.value?.trim() || '';
     try {

@@ -6,6 +6,18 @@ An iPhone home screen widget for Magpie, brought in as a plugin: install the plu
 
 Installing it needs no install script, no Node.js, no scheduled task and no Tailscale port forwarding. The plugin runs the service itself, finds the tailnet address itself, and the phone pairs by scanning a code once.
 
+> The numbers come from your own Magpie, and the script holds no key of its own. What the widget shows is still Magpie's own wording.
+
+The plugin page looks like this: the scan-to-pair block on top, and below it the state, the data update, the network, the device management, which subscriptions to show, and the advanced settings.
+
+## What it does
+
+- The plugin page shows a QR code. Scan it with the camera of the iPhone, let Safari open the pairing page, download the widget script, open it with Scriptable and add the widget to the home screen.
+- The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown, today's tokens, the last seven days and the rankings by vendor. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
+- The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed).
+- Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
+- The service only reads the local API of Magpie, only opens on this computer, the phone comes in through the port forwarding of Tailscale, and the tokens stay in the directory of Magpie.
+
 ## Requirements
 
 - Magpie on the desktop (the plugin host is Bun).
@@ -86,12 +98,12 @@ The page opens with the read-only token of the widget. The token travels in the 
 | Size | Shows | Widget Parameter |
 |---|---|---|
 | Small | one quota, the reset countdown, today's tokens | `codex` (default), `minimax`, `glm`; one account is written `codex@<account>`; `\|used` shows what is used |
-| Medium | up to 6 per page; today's tokens | empty; `page=2` for the second page |
+| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens | empty; `page=2` for the second page |
 | Large | up to 6 per page; two columns with the quota, the reset and the second window; today's and the last seven days | empty; `page=2` for the second page |
 
 ## Lifetime
 
-The service runs as long as Magpie runs. With Magpie closed, the phone keeps the last result it received.
+The service runs as long as Magpie runs. With Magpie closed, the phone keeps the last result it received. That is the trade of being a plugin, and it is not the same as the old service that stayed alive as a scheduled task.
 
 ## Port
 

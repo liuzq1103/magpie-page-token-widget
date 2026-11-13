@@ -21,12 +21,21 @@ export const tempDir = async () => mkdtemp(path.join(tmpdir(), 'token-widget-'))
 
 // A port of its own for every test, so the files of the tests can run at the
 // same time without fighting over the same number.
+// The numbers that were handed out are remembered: the system is free to
+// give the same number again right after it gave it back, and two tests that
+// share a number would fight over it.
+const handedOut = new Set();
 export const freePort = async () => {
-  const server = http.createServer();
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const server = http.createServer();
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    await new Promise((resolve) => server.close(resolve));
+    if (handedOut.has(port)) continue;
+    handedOut.add(port);
+    return port;
+  }
+  throw new Error('no free port for the tests');
 };
 
 export const cleanup = async (dir) => {

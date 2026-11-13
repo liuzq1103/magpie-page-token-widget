@@ -158,7 +158,8 @@ test('two phones get two tokens of their own', async () => {
   const secondBody = await second.json();
 
   assert.notEqual(firstBody.token, secondBody.token);
-  assert.notEqual(firstBody.token, again.token);
+  // The token of a phone is never the token of the console.
+  assert.notEqual(firstBody.token, consoleToken);
 
   // Behind the forwarding of Tailscale every phone of the tailnet arrives as
   // the loopback of this computer, so the address in the history cannot tell
@@ -263,6 +264,86 @@ test('the shared token of the old version is gone', async () => {
     assert.equal(paired.status, 200);
     const pairedBody = await paired.json();
     assert.notEqual(pairedBody.token, legacyToken);
+    const allowed = await fetch(oldBase + '/api/v1/overview', {
+      headers: { Authorization: 'Bearer ' + pairedBody.token },
+    });
+    assert.equal(allowed.status, 200);
+  } finally {
+    await old.close();
+    await cleanup(oldDir);
+  }
+});
+
+test('the console of 0.2 survives the change to 0.2.1', async () => {
+  // The state file of 0.2.0: a token for the console of this computer, the
+  // shared token of the phones and one device that still carries the old
+  // mark. The change takes the shared token away, but the console keeps the
+  // token it had, so the page does not have to be opened again.
+  const oldDir = await tempDir();
+  const consoleToken = 'console-token-'.padEnd(43, 'x');
+  const sharedToken = 'shared-token-'.padEnd(43, 'x');
+  const moment = new Date().toISOString();
+  await writeFile(
+    path.join(oldDir, 'state.json'),
+    JSON.stringify({
+      version: 1,
+      consoleToken,
+      token: sharedToken,
+      pairing: { code: 'old-code', createdAt: moment, expiresAt: new Date(Date.now() + 600000).toISOString() },
+      settings: { subscriptions: ['codex'] },
+      paired: [{ at: moment, address: '100.64.0.9', name: 'old phone' }],
+      devices: [
+        {
+          id: 'legacy',
+          name: 'old shared token',
+          hash: 'x'.repeat(64),
+          createdAt: moment,
+          lastAccessAt: null,
+          revokedAt: null,
+          legacy: true,
+        },
+        {
+          id: 'phone-a',
+          name: 'iPhone A',
+          hash: 'y'.repeat(64),
+          createdAt: moment,
+          lastAccessAt: null,
+          revokedAt: null,
+          legacy: false,
+        },
+      ],
+    })
+  );
+  const old = await start(oldDir);
+  const oldBase = `http://127.0.0.1:${old.port}`;
+  try {
+    // The console opens with the token it had before the change.
+    await waitForConsole(oldBase, consoleToken);
+    const body = await (await fetch(oldBase + '/api/v1/console/state', {
+      headers: { [TOKEN_HEADER]: consoleToken },
+    })).json();
+    assert.equal(body.token, undefined);
+
+    // The shared token of the phones opens nothing.
+    const answer = await fetch(oldBase + '/api/v1/overview', {
+      headers: { Authorization: 'Bearer ' + sharedToken },
+    });
+    assert.equal(answer.status, 401);
+
+    // The file is cleaned up in place: the shared token is gone, the device
+    // that carried the old mark is gone, the other phone stays.
+    const saved = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8'));
+    assert.equal(saved.token, undefined);
+    assert.equal(saved.consoleToken, consoleToken);
+    assert.equal(saved.devices.length, 1);
+    assert.equal(saved.devices[0].id, 'phone-a');
+    assert.deepEqual(saved.settings, { subscriptions: ['codex'] });
+
+    // A new phone pairs as if it were the first one.
+    const fresh = JSON.parse(await readFile(path.join(oldDir, 'state.json'), 'utf8'));
+    const paired = await post(oldBase, '/api/v1/session', { code: fresh.pairing.code, name: 'new phone' });
+    assert.equal(paired.status, 200);
+    const pairedBody = await paired.json();
     const allowed = await fetch(oldBase + '/api/v1/overview', {
       headers: { Authorization: 'Bearer ' + pairedBody.token },
     });
