@@ -1,11 +1,14 @@
-// SetupUsageWidget · ScriptableTokenWidgets · MIT
+// SetupUsageWidget · magpie-page-token-widget · MIT
 // Paste this entire script into Scriptable, then run it once.
+// The plugin rewrites the port below when it hands out this file.
+const SETTINGS_KEY = "ameaq-rmrcxu-b2";
+const DEFAULT_PORT = 8790;
 let saved = {};
-try { saved = JSON.parse(Keychain.get("usage-bridge-v1")) || {}; } catch {}
+try { saved = JSON.parse(Keychain.get(SETTINGS_KEY)) || {}; } catch {}
 const alert = new Alert();
 alert.title = "连接你的用量";
 alert.message = "先连接 Tailscale。输入 PC 上生成的服务地址与只读令牌。无需填写模型 API Key。";
-alert.addTextField("http://你的 Tailscale IP:8799", typeof saved.baseURL === "string" ? saved.baseURL : "");
+alert.addTextField("http://你的 Tailscale IP:" + DEFAULT_PORT, typeof saved.baseURL === "string" ? saved.baseURL : "");
 alert.addSecureTextField("只读访问令牌", typeof saved.token === "string" ? saved.token : "");
 alert.addAction("验证并安装"); alert.addCancelAction("取消");
 if (await alert.presentAlert() !== -1) {
@@ -25,19 +28,21 @@ if (await alert.presentAlert() !== -1) {
     const data = await probe.loadJSON();
     if (probe.response && probe.response.statusCode === 401) throw new Error("只读令牌无效。");
     if (data.schemaVersion !== 1) throw new Error("未识别到兼容服务，请检查地址与令牌。");
-    const download = new Request(baseURL + "/scriptable/UsageWidget.js"); download.timeoutInterval = 12;
+    const download = new Request(baseURL + "/scriptable/UsageWidget.js");
+    download.headers = { Authorization: "Bearer " + token };
+    download.timeoutInterval = 12;
     const source = await download.loadString();
-    if (!source.startsWith("// UsageWidget · ScriptableTokenWidgets") || !source.includes("Script.setWidget") || source.length > 100000) throw new Error("组件下载校验失败。");
+    if (!source.startsWith("// UsageWidget ·") || !source.includes("Script.setWidget") || source.length > 100000) throw new Error("组件下载校验失败。");
     let fm;
     try { fm = FileManager.iCloud(); fm.documentsDirectory(); }
     catch { fm = FileManager.local(); }
     const target = fm.joinPath(fm.documentsDirectory(), "UsageWidget.js");
     if (fm.fileExists(target)) {
       if (fm.isFileStoredIniCloud(target)) await fm.downloadFileFromiCloud(target);
-      if (!fm.readString(target).startsWith("// UsageWidget · ScriptableTokenWidgets")) throw new Error("已有同名脚本，请先重命名原脚本再安装。");
+      if (!fm.readString(target).startsWith("// UsageWidget ·")) throw new Error("已有同名脚本，请先重命名原脚本再安装。");
     }
     fm.writeString(target, source);
-    Keychain.set("usage-bridge-v1", JSON.stringify({ baseURL, token }));
+    Keychain.set(SETTINGS_KEY, JSON.stringify({ baseURL, token }));
     const done = new Alert();
     done.title = "已连接";
     done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号或大号小组件，选择 UsageWidget。每页最多六个订阅，布局随数量自动调整。\n\n中号和大号参数留空即可；page=2 查看第二页，used 改显已用，可组合 page=2|used。小号填 codex、minimax 或 glm，可加 |used；同一个厂商登录了多个账号时，填 codex@账号名 指定其中一个（如 codex@liuzq），只填 codex 表示该厂商的第一个账号。再次运行本安装器可更新组件。";

@@ -95,6 +95,30 @@ test('the widget of the phone carries the pairing code', async () => {
   assert.equal(denied.status, 403);
 });
 
+test('a phone that installs by hand gets the widget with its token', async () => {
+  // The setup script of the phone knows the token, not the pairing code.
+  const response = await fetch(base + '/scriptable/UsageWidget.js', {
+    headers: { Authorization: 'Bearer ' + state.token },
+  });
+  assert.equal(response.status, 200);
+  const source = await response.text();
+  assert.match(source, /Script\.setWidget/);
+  // Without a pairing code there is nothing to fill in.
+  assert.match(source, /let PAIRED = null;/);
+
+  const denied = await fetch(base + '/scriptable/UsageWidget.js');
+  assert.equal(denied.status, 403);
+});
+
+test('the setup script of the phone carries the port of this service', async () => {
+  const response = await fetch(base + '/scriptable/SetupUsageWidget.js');
+  assert.equal(response.status, 200);
+  const source = await response.text();
+  assert.match(source, new RegExp('const DEFAULT_PORT = ' + port + ';'));
+  // The script and the widget have to agree on the keychain key.
+  assert.match(source, /const SETTINGS_KEY = "ameaq-rmrcxu-b2";/);
+});
+
 test('the page of the phone explains the three steps', async () => {
   const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.token });
   const consoleState = await rotated.json();
