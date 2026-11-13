@@ -399,12 +399,14 @@
     if (pairingLeft(current) > 0) {
       // The note counts down on the page itself.
       renderPairing(current);
+      renderAdvanced(current);
       return false;
     }
     try {
       const result = await api('api/v1/console/pair', { method: 'POST', body: '{}' });
       current = result;
       renderPairing(result);
+      renderAdvanced(result);
       return true;
     } catch {
       text('pairNote', '没能换一个新的配对码，过一会儿再试一次。');
