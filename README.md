@@ -14,6 +14,7 @@
 - 组件里显示每家订阅的剩余额度、5 小时与周额度窗口的百分比、重置倒计时、今日 Token、七日趋势和各家排行。参数可以选订阅（`codex`、`minimax`、`glm`，或 `codex@账号名`），也可以把百分比换成已用（`|used`）。
 - 插件页还能改中号和大号组件里显示哪些订阅，能看到 Tailscale 的状态和同一尾网里的 iPhone。
   - 勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。勾选框显示的就是手机上会出现的卡片。
+- 点一下手机上的组件，Safari 会打开手机版用量页：每家订阅的剩余额度、今日与近七日的 Token、模型／厂商／客户端排行，和电脑上看到的是同一份数据。
 - 服务只读 Magpie 的本地接口，只在本机打开，手机经 Tailscale 的端口转发进来，令牌存放在 Magpie 自己的目录里。
 
 ## 需要什么
@@ -47,6 +48,12 @@ magpie plugin add ./magpie-page-token-widget
 配对码只能用一次。手机装好组件后码就失效了；再生成一个就能装第二台。脚本里只有一个一次性配对码，第一次运行时换成自己的令牌，存进 Scriptable 的钥匙串。
 
 不想扫码也行：插件页上有「只读令牌」，把它和「服务地址」填进 `scriptable/SetupUsageWidget.js`（在 Scriptable 里新建一个脚本粘贴运行）也行。
+
+## 手机上的用量页
+
+点一下桌面上的组件，Safari 会打开手机版的用量页：每家订阅的剩余额度、今日与近七日的 Token、模型／厂商／客户端排行，和电脑上看到的是同一份数据。
+
+页面用组件里的那个只读令牌打开，令牌只走地址栏的 `#token=` 一段，页面打开后立刻把它抹掉，之后由 Scriptable 自己记着。手机版页面只在尾网这一侧提供，电脑上的控制台仍然只在本机。
 
 ## 组件参数
 
@@ -127,6 +134,12 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 5. Long press the home screen, add the Scriptable widget and pick `UsageWidget`.
 
 The pairing code works once. The script carries only that one-time code; on its first run it exchanges the code for a token of its own and keeps it in the keychain of Scriptable.
+
+## The page on the phone
+
+Tapping the widget opens the usage page on the phone: the remaining quota of every subscription, today's tokens, the last seven days and the rankings by model, vendor and client, the same numbers the computer shows.
+
+The page opens with the read-only token of the widget. The token travels in the `#token=` part of the address and is wiped from there as soon as the page is open; Scriptable keeps it from then on. The page is served on the tailnet side only, the console of the computer stays on this computer.
 
 ## Widget parameter
 
