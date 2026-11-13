@@ -14,6 +14,15 @@ let PAIRED = null;
 const fm = FileManager.local();
 const cachePath = fm.joinPath(fm.documentsDirectory(), "usage-bridge-cache.json");
 const family = ["small", "medium", "large"].includes(config.widgetFamily) ? config.widgetFamily : "medium";
+// The name of this phone goes with the pairing, so the person at the computer
+// can tell the phones apart when one of them is to be revoked.
+function deviceName() {
+  try {
+    const name = String(Device.name() || "");
+    if (name) return name.slice(0, 32);
+  } catch {}
+  return "iPhone";
+}
 // Screen points -> medium width, medium height, large height. These are widget
 // bounds, not screen bounds. 402x874 uses the 349pt width from the iPhone capture.
 function widgetDimensions() {
@@ -66,7 +75,7 @@ if ((!settings || !settings.token) && PAIRED && PAIRED.code) {
     const request = new Request(PAIRED.baseURL + "/api/v1/session");
     request.method = "POST";
     request.headers = { "Content-Type": "application/json" };
-    request.body = JSON.stringify({ code: PAIRED.code });
+    request.body = JSON.stringify({ code: PAIRED.code, name: deviceName() });
     request.timeoutInterval = 12;
     const session = await request.loadJSON();
     if (session && session.token) {

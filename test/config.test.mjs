@@ -1,0 +1,215 @@
+import { after, before, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startServer, TOKEN_HEADER } from '../lib/server.mjs';
+import { cleanup, freePort, mockTailscale, tempDir } from './helpers.mjs';
+
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+const start = async (dir, options = {}) => startServer({
+  root,
+  dataDir: dir,
+  magpieDir: dir,
+  options: {
+    port: await freePort(),
+    phonePort: await freePort(),
+    listenTailnet: false,
+    forward: false,
+    gatewayURL: 'http://127.0.0.1:1',
+    // The tests never touch the real Tailscale of this computer.
+    tailscaleRunner: mockTailscale().runner,
+    ...options,
+  },
+});
+
+const post = (base, route, value, headers = {}) => fetch(base + route, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...headers },
+  body: JSON.stringify(value || {}),
+});
+
+let dir;
+let service;
+let base;
+
+before(async () => {
+  dir = await tempDir();
+  service = await start(dir);
+  base = `http://127.0.0.1:${service.port}`;
+});
+
+after(async () => {
+  await service?.close();
+  await cleanup(dir);
+});
+
+const consoleToken = async () =>
+  JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8')).consoleToken;
+
+const waitForConsole = async () => {
+  const token = await consoleToken();
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const response = await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } });
+    if (response.status !== 503) return token;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('the console of the service never opened');
+};
+
+test('the service starts with sensible defaults', async () => {
+  const token = await waitForConsole();
+  const state = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
+  assert.equal(state.refresh.strategy, 'smart');
+  assert.ok(state.refresh.label);
+  assert.deepEqual(state.display.subscriptions, ['codex', 'minimax', 'glm']);
+  assert.equal(state.port > 0, true);
+  assert.equal(state.phonePort, state.port + 1);
+  assert.match(state.upstream, /^http:\/\/127\.0\.0\.1:\d+$/);
+});
+
+test('a rhythm the service does not know falls back to the smart one', async () => {
+  const token = await consoleToken();
+  const answer = await post(base, '/api/v1/console/options', { refreshStrategy: 'every minute' }, { [TOKEN_HEADER]: token });
+  assert.equal(answer.status, 200);
+  const body = await answer.json();
+  assert.equal(body.refresh.strategy, 'smart');
+});
+
+test('the rhythm of the reading changes at once', async () => {
+  const token = await consoleToken();
+  const answer = await post(base, '/api/v1/console/options', { refreshStrategy: '5m' }, { [TOKEN_HEADER]: token });
+  assert.equal(answer.status, 200);
+  // The collector knows it at once: the service does not have to be started
+  // again for that.
+  assert.equal(service.collector.strategy, '5m');
+  const state = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
+  assert.equal(state.refresh.strategy, '5m');
+});
+
+test('the rhythm is still there after the service starts again', async () => {
+  await service.close();
+  service = await start(dir);
+  base = `http://127.0.0.1:${service.port}`;
+  await waitForConsole();
+  assert.equal(service.collector.strategy, '5m');
+});
+
+test('the choice of the subscriptions is checked', async () => {
+  const token = await consoleToken();
+  // A list that is empty falls back to the default.
+  const empty = await post(base, '/api/v1/console/options', { subscriptions: [] }, { [TOKEN_HEADER]: token });
+  assert.equal((await empty.json()).display.subscriptions.length, 3);
+  // A name that is not a name is not taken.
+  const wrong = await post(base, '/api/v1/console/options', { subscriptions: ['<script>'] }, { [TOKEN_HEADER]: token });
+  assert.deepEqual((await wrong.json()).display.subscriptions, ['codex', 'minimax', 'glm']);
+  // A real choice is kept.
+  const good = await post(base, '/api/v1/console/options', { subscriptions: ['codex'] }, { [TOKEN_HEADER]: token });
+  assert.deepEqual((await good.json()).display.subscriptions, ['codex']);
+});
+
+test('the choices survive a restart of the service', async () => {
+  await service.close();
+  service = await start(dir);
+  base = `http://127.0.0.1:${service.port}`;
+  const token = await waitForConsole();
+  const state = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
+  assert.deepEqual(state.display.subscriptions, ['codex']);
+  assert.equal(state.refresh.strategy, '5m');
+});
+
+test('the diagnosis does not change the network of this computer', async () => {
+  const mock = mockTailscale();
+  // Another service has its own forwarding.
+  mock.serve.TCP['9999'] = { TCPForward: '127.0.0.1:9999' };
+  const local = await tempDir();
+  const other = await start(local, { tailscaleRunner: mock.runner });
+  const otherBase = `http://127.0.0.1:${other.port}`;
+  try {
+    const state = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const response = await fetch(otherBase + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: state.consoleToken } });
+      if (response.status !== 503) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const answer = await post(otherBase, '/api/v1/console/diagnose', {}, { [TOKEN_HEADER]: state.consoleToken });
+    assert.equal(answer.status, 200);
+    const body = await answer.json();
+    assert.ok(body.tailnet);
+    assert.ok('ping' in body);
+    // Nothing was published and nothing was taken away.
+    assert.deepEqual(mock.serve.TCP, { '9999': { TCPForward: '127.0.0.1:9999' } });
+  } finally {
+    await other.close();
+    await cleanup(local);
+  }
+});
+
+test('the port of the service comes from the plugin and is kept', async () => {
+  const file = path.join(dir, 'state.json');
+  const state = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(typeof state.consoleToken, 'string');
+  assert.ok(state.consoleToken.length >= 32);
+  // The token of the console is not the token of the phones.
+  assert.notEqual(state.consoleToken, state.token);
+});
+
+test('a damaged state file does not stop the service', async () => {
+  const local = await tempDir();
+  await writeFile(path.join(local, 'state.json'), '{ this is not json');
+  const other = await start(local);
+  try {
+    const state = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
+    assert.equal(typeof state.consoleToken, 'string');
+    assert.equal(state.version, 1);
+  } finally {
+    await other.close();
+    await cleanup(local);
+  }
+});
+
+test('the console stays shut while a rule of an older version points at it', async () => {
+  // A rule that an older version left behind can point the published port
+  // at the console of this computer. Then the console must not open: it
+  // carries the token of the console.
+  const mock = mockTailscale();
+  const local = await tempDir();
+  const port = await freePort();
+  mock.serve.TCP[String(port)] = { TCPForward: `127.0.0.1:${port}` };
+  const service = await start(local, { port, tailscaleRunner: mock.runner });
+  try {
+    const state = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
+    const response = await fetch(`http://127.0.0.1:${port}/api/v1/console/state`, {
+      headers: { [TOKEN_HEADER]: state.consoleToken },
+    });
+    assert.equal(response.status, 503);
+    // The page of the computer is not given out either.
+    const page = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { 'Sec-Fetch-Mode': 'navigate' },
+    });
+    assert.equal(page.status, 503);
+  } finally {
+    await service.close();
+    await cleanup(local);
+  }
+});
+
+test('the temporary files of a run that was killed are swept away', async () => {
+  // A write that was killed between the write and the move leaves its
+  // temporary file behind. Nothing ever reads it, but it should not pile up.
+  const local = await tempDir();
+  const old = path.join(local, 'state.json.1234.deadbeef.tmp');
+  await writeFile(old, 'half a file');
+  const stale = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  await utimes(old, stale, stale);
+  const service = await start(local);
+  try {
+    const names = await readdir(local);
+    assert.equal(names.includes(path.basename(old)), false);
+  } finally {
+    await service.close();
+    await cleanup(local);
+  }
+});

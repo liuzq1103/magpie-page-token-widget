@@ -155,3 +155,84 @@ ol {
   color: var(--muted);
   font-size: 12px;
 }
+h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 16px 0 6px;
+}
+.list {
+  display: grid;
+  gap: 8px;
+}
+.list .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--soft);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.list .row .note {
+  margin: 0;
+  flex: 1 1 100%;
+}
+.list .row .actions {
+  margin: 0;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+.tag {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.device-name {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  min-width: 140px;
+}
+button.danger {
+  background: transparent;
+  color: #b4483c;
+  border-color: #e0bdb7;
+}
+.row.manual {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+.row.manual input {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  min-width: 160px;
+}
+[data-theme="dark"] button.danger {
+  color: #e29186;
+  border-color: #4a3632;
+}
+details summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+details[open] summary {
+  margin-bottom: 12px;
+}

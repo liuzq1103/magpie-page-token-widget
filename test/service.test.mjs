@@ -1,39 +1,22 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { request as httpRequest } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { startServer } from '../lib/server.mjs';
+import { startServer, TOKEN_HEADER } from '../lib/server.mjs';
+import { ask, cleanup, freePort, mockTailscale, tempDir } from './helpers.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const port = 18799;
-const base = `http://127.0.0.1:${port}`;
-// The phone side of the service listens on a port of its own. The forwarding
-// of Tailscale points the published port at it.
-const phonePort = port + 1;
-const phoneBase = `http://127.0.0.1:${phonePort}`;
-const TOKEN_HEADER = 'x-token-widget-token';
-
-// The browser does not let a page set Sec-Fetch-Mode, so a plain request is
-// the only way to pretend to be a navigation.
-const ask = (origin, route, headers = {}) =>
-  new Promise((resolve, reject) => {
-    const req = httpRequest(origin + route, { headers }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-
-const get = (route, headers = {}) => ask(base, route, headers);
 
 let service;
 let dataDir;
 let state;
+let port;
+let phonePort;
+let base;
+let phoneBase;
+
+const get = (route, headers = {}) => ask(base, route, headers);
 
 const post = (route, value, headers = {}) =>
   fetch(base + route, {
@@ -43,12 +26,24 @@ const post = (route, value, headers = {}) =>
   });
 
 before(async () => {
-  dataDir = await mkdtemp(path.join(tmpdir(), 'token-widget-'));
+  dataDir = await tempDir();
+  port = await freePort();
+  phonePort = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  phoneBase = `http://127.0.0.1:${phonePort}`;
   service = await startServer({
     root,
     dataDir,
     magpieDir: dataDir,
-    options: { port, listenTailnet: false, forward: false, gatewayURL: 'http://127.0.0.1:1' },
+    options: {
+      port,
+      phonePort,
+      listenTailnet: false,
+      forward: false,
+      gatewayURL: 'http://127.0.0.1:1',
+      // The tests never touch the real Tailscale of this computer.
+      tailscaleRunner: mockTailscale().runner,
+    },
   });
   state = JSON.parse(await readFile(path.join(dataDir, 'state.json'), 'utf8'));
   await waitForConsole();
@@ -59,7 +54,7 @@ before(async () => {
 const waitForConsole = async () => {
   for (let attempt = 0; attempt < 300; attempt += 1) {
     const response = await fetch(base + '/api/v1/console/state', {
-      headers: { [TOKEN_HEADER]: state.token },
+      headers: { [TOKEN_HEADER]: state.consoleToken },
     });
     if (response.status !== 503) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -69,7 +64,7 @@ const waitForConsole = async () => {
 
 after(async () => {
   await service?.close();
-  if (dataDir) await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  await cleanup(dataDir);
 });
 
 test('the service tells that it is alive', async () => {
@@ -97,13 +92,21 @@ test('a pairing code is worth one try', async () => {
   const right = await post('/api/v1/session', { code: state.pairing.code });
   assert.equal(right.status, 200);
   const body = await right.json();
-  assert.equal(body.token, state.token);
+  // The phone gets a token of its own, not the shared one of the old version.
+  assert.notEqual(body.token, state.token);
+  assert.equal(typeof body.device.id, 'string');
+  // The code is used once: the next try with the same code fails.
   const again = await post('/api/v1/session', { code: state.pairing.code });
   assert.equal(again.status, 403);
+  // The new token opens the door of the phone.
+  const allowed = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + body.token },
+  });
+  assert.equal(allowed.status, 200);
 });
 
 test('the widget of the phone carries the pairing code', async () => {
-  const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.token });
+  const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
   assert.equal(rotated.status, 200);
   const consoleState = await rotated.json();
   const response = await fetch(base + '/scriptable/UsageWidget.js?code=' + consoleState.pairingCode);
@@ -140,7 +143,7 @@ test('the setup script of the phone carries the port of this service', async () 
 });
 
 test('the page of the phone explains the three steps', async () => {
-  const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.token });
+  const rotated = await post('/api/v1/console/pair', {}, { [TOKEN_HEADER]: state.consoleToken });
   const consoleState = await rotated.json();
   const response = await fetch(base + '/p/' + consoleState.pairingCode);
   assert.equal(response.status, 200);
@@ -156,13 +159,22 @@ test('the console answers with the token only', async () => {
   const denied = await fetch(base + '/api/v1/console/state');
   assert.equal(denied.status, 403);
   const response = await fetch(base + '/api/v1/console/state', {
-    headers: { [TOKEN_HEADER]: state.token },
+    headers: { [TOKEN_HEADER]: state.consoleToken },
   });
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.token, state.token);
   assert.equal(typeof body.pairingCode, 'string');
   assert.equal(typeof body.qr, 'string');
+  // The console never hands out the hash of a token.
+  assert.doesNotMatch(JSON.stringify(body), /"hash"/);
+});
+
+test('the console token of this computer does not open the door of the phone', async () => {
+  const denied = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + state.consoleToken },
+  });
+  assert.equal(denied.status, 401);
 });
 
 test('the page of the console asks for its token before the browser sends it', async () => {
@@ -186,12 +198,12 @@ test('the choice of the subscriptions is remembered', async () => {
   const response = await post(
     '/api/v1/console/options',
     { subscriptions: ['codex'] },
-    { [TOKEN_HEADER]: state.token }
+    { [TOKEN_HEADER]: state.consoleToken }
   );
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.display.subscriptions, ['codex']);
-  await post('/api/v1/console/options', { subscriptions: ['*'] }, { [TOKEN_HEADER]: state.token });
+  await post('/api/v1/console/options', { subscriptions: ['*'] }, { [TOKEN_HEADER]: state.consoleToken });
 });
 
 test('a second Magpie shares the service of the first one', async () => {
@@ -201,7 +213,13 @@ test('a second Magpie shares the service of the first one', async () => {
     root,
     dataDir,
     magpieDir: dataDir,
-    options: { port, listenTailnet: false, forward: false, gatewayURL: 'http://127.0.0.1:1' },
+    options: {
+      port,
+      phonePort,
+      listenTailnet: false,
+      forward: false,
+      gatewayURL: 'http://127.0.0.1:1',
+    },
   });
   assert.equal(second.shared, true);
   await second.close();
@@ -214,12 +232,12 @@ test('a second Magpie shares the service of the first one', async () => {
 test('the console and the phone side are two different rooms', async () => {
   // Both listeners take the same requests, but each one knows which side it
   // belongs to. The console of this computer is only open on its own port.
-  const onConsole = await get('/api/v1/console/state', { [TOKEN_HEADER]: state.token });
+  const onConsole = await get('/api/v1/console/state', { [TOKEN_HEADER]: state.consoleToken });
   assert.equal(onConsole.status, 200);
 
   const onPhone = await ask(phoneBase, '/api/v1/console/state', {
     host: `127.0.0.1:${port}`,
-    [TOKEN_HEADER]: state.token,
+    [TOKEN_HEADER]: state.consoleToken,
   });
   assert.equal(onPhone.status, 403);
   assert.match(onPhone.body, /only opened on the computer of the service/);
@@ -255,7 +273,7 @@ test('a request from the tailnet is not one of this computer', async () => {
   // what it may see, not the name it carries.
   const stolen = await ask(phoneBase, '/api/v1/console/state', {
     host: `127.0.0.1:${port}`,
-    [TOKEN_HEADER]: state.token,
+    [TOKEN_HEADER]: state.consoleToken,
   });
   assert.equal(stolen.status, 403);
   assert.doesNotMatch(stolen.body, /"token"/);
@@ -269,9 +287,8 @@ test('a request from the tailnet is not one of this computer', async () => {
   assert.equal(page.status, 200);
   assert.doesNotMatch(page.body, /__SERVICE_TOKEN__/);
   assert.doesNotMatch(page.body, /name="service-token"/);
-  assert.doesNotMatch(page.body, /state\.token/);
 
   // The console of this computer answers on its own port as before.
-  const onConsole = await get('/api/v1/console/state', { [TOKEN_HEADER]: state.token });
+  const onConsole = await get('/api/v1/console/state', { [TOKEN_HEADER]: state.consoleToken });
   assert.equal(onConsole.status, 200);
 });

@@ -22,7 +22,7 @@
         <p class="center mono" id="pairingURL">—</p>
         <div class="actions">
           <button id="copyLink" type="button">复制配对链接</button>
-          <button id="copyToken" type="button">复制只读令牌</button>
+          <button id="copyToken" type="button">复制旧版共享令牌</button>
           <button id="rotate" type="button" class="quiet">重新生成配对码</button>
         </div>
         <p class="note" id="pairNote"></p>
@@ -34,12 +34,53 @@
       </section>
 
       <section class="card">
+        <h2>数据更新</h2>
+        <div id="refresh" class="checks"></div>
+        <p class="note" id="refreshNote"></p>
+      </section>
+
+      <section class="card">
+        <h2>网络连接</h2>
+        <dl id="netFacts"></dl>
+        <h3>尾网里的 iPhone</h3>
+        <div id="peers" class="list"></div>
+        <h3>这台电脑的网卡</h3>
+        <div id="interfaces" class="list"></div>
+        <p class="note" id="lanNote"></p>
+        <div class="actions">
+          <button id="diagnose" type="button">诊断连接</button>
+        </div>
+        <p class="note" id="diagnoseNote"></p>
+      </section>
+
+      <section class="card">
+        <h2>设备管理</h2>
+        <div id="devices" class="list"></div>
+        <p class="note" id="deviceNote"></p>
+        <div class="row manual">
+          <input id="manualName" type="text" placeholder="新手机的名字" />
+          <button id="manualToken" type="button">给这台手机一个令牌</button>
+        </div>
+        <p class="note" id="manualNote"></p>
+      </section>
+
+      <section class="card">
         <h2>显示哪些订阅</h2>
         <div id="subscriptions" class="checks"></div>
         <p class="note">
           这里改的是中号和大号组件里的内容。勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。小号组件用自己的参数选一张：codex、minimax、glm，或 codex@账号名。
         </p>
         <p class="note" id="subNote"></p>
+      </section>
+
+      <section class="card">
+        <details>
+          <summary>高级设置</summary>
+          <dl id="advanced"></dl>
+          <p class="note">
+            服务端口和网关地址是 Magpie 插件的启动参数，要改请到 Magpie 的插件设置里改；这里只是显示，不改动。
+          </p>
+        </details>
       </section>
 
       <section class="card">
