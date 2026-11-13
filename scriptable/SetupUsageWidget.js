@@ -16,11 +16,18 @@ if (await alert.presentAlert() !== -1) {
   const token = alert.textFieldValue(1).trim();
   try {
     if (!/^https?:\/\/[^/?#\s]+$/i.test(baseURL) || /@/.test(baseURL)) throw new Error("请输入完整服务地址，不含路径或登录信息。");
-    const host = baseURL.replace(/^https?:\/\//i, "").split(":")[0].toLowerCase();
+    const rest = baseURL.replace(/^https?:\/\//i, "");
+    const host = (rest.startsWith("[") ? rest.slice(1, rest.indexOf("]")) : rest.split(":")[0]).toLowerCase();
     const parts = host.split(".").map(Number);
-    const tailnet = parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127 && parts.every(n => Number.isInteger(n) && n >= 0 && n <= 255);
-    if (/^http:/i.test(baseURL) && !tailnet && host !== "localhost" && host !== "127.0.0.1" && !/\.ts\.net$/.test(host)) {
-      throw new Error("HTTP 地址必须是 Tailscale 地址或本机回环地址。");
+    const octet = n => Number.isInteger(n) && n >= 0 && n <= 255;
+    const tailnet = parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127 && parts.every(octet);
+    // The address of a network of the user's own: a house, an office, or a
+    // Headscale of his own (the same range Tailscale hands out).
+    const own = parts.length === 4 && octet(parts[0]) && octet(parts[1]) && octet(parts[2]) && octet(parts[3])
+      && (parts[0] === 10 || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31));
+    const ula = /^f[cd][0-9a-f]{2}:/i.test(host);
+    if (/^http:/i.test(baseURL) && !tailnet && !own && !ula && host !== "localhost" && host !== "127.0.0.1" && !/\.ts\.net$/.test(host)) {
+      throw new Error("HTTP 地址必须是内网地址、Tailscale 地址或本机回环地址。");
     }
     if (token.length < 32) throw new Error("令牌不完整，请复制 PC 上生成的完整只读令牌。");
     const probe = new Request(baseURL + "/api/v1/overview");

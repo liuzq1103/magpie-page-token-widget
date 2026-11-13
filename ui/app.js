@@ -28,7 +28,16 @@
         ...(options.headers || {}),
       },
     });
-    if (!response.ok) throw new Error(`request failed: ${response.status}`);
+    if (!response.ok) {
+      let message = `request failed: ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body && body.error) message = body.error;
+      } catch {
+        // The answer is not json; the number is all there is.
+      }
+      throw new Error(message);
+    }
     return response.json();
   };
 
@@ -106,6 +115,84 @@
       ],
       ['Magpie 网关', mono(state.upstream || '—')],
     ]);
+  };
+
+  // The user may have a network of his own: a Headscale of his own, a
+  // server of his own, a tunnel of his own. The address the phone is told to
+  // use is written down here, and the phone side may listen on an address of
+  // this computer.
+  const renderOwnNetwork = (state) => {
+    const external = state.external || {};
+    const field = element('external');
+    if (field && document.activeElement !== field) field.value = external.url || '';
+    const note = element('externalNote');
+    if (note) {
+      const parts = [];
+      parts.push(external.url
+        ? `手机会用这个地址：${external.url}。`
+        : '留空就用 Tailscale 的地址。');
+      if (external.listenAddress) {
+        parts.push(`手机那一侧的端口已经在 ${external.listenAddress} 上打开。`);
+      }
+      if (external.error) parts.push(external.error);
+      parts.push('这条路上的数据是明文的 HTTP，令牌就走在里面；iPhone 会问你要「本地网络」的权限。');
+      note.textContent = parts.join(' ');
+    }
+    const list = element('bindList');
+    if (!list) return;
+    list.replaceChildren();
+    const candidates = external.candidates || [];
+    if (!candidates.length) {
+      list.append(node('p', 'note', '没有找到这台电脑上可以给手机用的地址。'));
+      return;
+    }
+    for (const item of candidates) {
+      const row = node('div', 'row');
+      row.append(node('strong', null, item.name));
+      row.append(node('span', 'tag', KIND_LABEL[item.kind] || KIND_LABEL.other));
+      row.append(node('span', 'mono', item.address));
+      const use = node('button', null, '手机从这里连');
+      use.type = 'button';
+      use.addEventListener('click', () => { void useOwnAddress(item.address); });
+      row.append(use);
+      list.append(row);
+    }
+  };
+
+  // The phone is told to go to an address of this computer, and the phone
+  // side starts listening there.
+  const useOwnAddress = async (address) => {
+    try {
+      const port = current?.phonePort;
+      const host = address.includes(':') ? `[${address}]` : address;
+      const url = port ? `http://${host}:${port}` : '';
+      const before = current?.external?.url || '';
+      if (before && before !== url && !window.confirm(`把手机换成 ${url}？原来填的地址会换掉。`)) return;
+      await api('api/v1/console/options', {
+        method: 'POST',
+        body: JSON.stringify({
+          listenAddress: address,
+          externalURL: url,
+        }),
+      });
+      await load();
+    } catch (error) {
+      text('externalNote', error.message || '这个地址没有用。');
+    }
+  };
+
+  const saveOwnAddress = async () => {
+    const field = element('external');
+    if (!field) return;
+    try {
+      await api('api/v1/console/options', {
+        method: 'POST',
+        body: JSON.stringify({ externalURL: field.value.trim() }),
+      });
+      await load();
+    } catch (error) {
+      text('externalNote', error.message || '这个地址写不了。');
+    }
   };
 
   const renderNetwork = (state) => {
@@ -386,6 +473,7 @@
     );
     renderFacts(state);
     renderNetwork(state);
+    renderOwnNetwork(state);
     renderDevices(state);
     renderRefresh(state);
     renderAdvanced(state);
@@ -466,6 +554,7 @@
       text('pairNote', '没有换成新的配对码，请再试一次。');
     }
   });
+  element('saveExternal')?.addEventListener('click', () => { void saveOwnAddress(); });
   element('diagnose')?.addEventListener('click', async () => {
     text('diagnoseNote', '正在问 Tailscale…');
     try {

@@ -177,7 +177,7 @@ function speedText(metrics) {
 }
 function render(data, offline = false) {
   const stale = offline || Object.values(data.sources).some(source => source.state !== 'ok');
-  $('connection').textContent = offline ? '离线· 显示缓存' : stale ? '部分数据待更新' : '已连接· Tailscale';
+  $('connection').textContent = offline ? '离线· 显示缓存' : stale ? '部分数据待更新' : '已连接';
   $('status-dot').className = 'status-dot ' + (stale ? 'warn' : 'ok');
   const notices = [];
   if (data.demo) notices.push('演示模式· 所有数字、模型和设备用量均为虚构数据。');
@@ -228,7 +228,7 @@ async function load() {
     $('auth').close(); render(data);
   } catch {
     if (last) render(last, true);
-    else { $('connection').textContent = '连接失败'; $('notice').hidden = false; $('notice').textContent = '无法连接服务。请检查 PC 服务和 iPhone 的 Tailscale 连接。'; }
+    else { $('connection').textContent = '连接失败'; $('notice').hidden = false; $('notice').textContent = '无法连接服务。请检查 PC 服务和 iPhone 的网络（尾网或内网）。'; }
   } finally { $('refresh').disabled = false; }
 }
 $('auth-form').addEventListener('submit', event => {

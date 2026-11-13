@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  detect, interfaceKind, interfaces, lanCandidates, peerPath, pingPath, prefixLength,
+  bindCandidates, detect, interfaceKind, interfaces, lanCandidates, peerPath, pingPath, prefixLength,
 } from '../lib/tailnet.mjs';
 import { mockTailscale, tailscaleStatus } from './helpers.mjs';
 
@@ -170,4 +170,18 @@ test('the network cards of this computer are listed as well', () => {
     assert.ok(typeof entry.name === 'string');
     assert.ok(['tailscale', 'loopback', 'wifi', 'virtual', 'ethernet', 'other'].includes(entry.kind));
   }
+});
+
+test('the addresses of a headscale of the user count too', () => {
+  const cards = {
+    tailscale0: [{ address: '100.64.0.1', family: 'IPv4', internal: false }],
+    headscale0: [{ address: '100.64.0.7', family: 'IPv4', internal: false }],
+    eth0: [{ address: '192.168.1.20', family: 'IPv4', internal: false }],
+    lo: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
+  };
+  const addresses = bindCandidates(cards).map((entry) => entry.address);
+  assert.ok(addresses.includes('100.64.0.7'), 'the address of the headscale');
+  assert.ok(addresses.includes('192.168.1.20'), 'the address of the house');
+  assert.ok(addresses.includes('100.64.0.1'), 'the address of the tailnet is one of them');
+  assert.ok(!addresses.includes('127.0.0.1'), 'the loopback is left out');
 });

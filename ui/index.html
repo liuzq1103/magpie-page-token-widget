@@ -46,6 +46,13 @@
         <h3>这台电脑的网卡</h3>
         <div id="interfaces" class="list"></div>
         <p class="note" id="lanNote"></p>
+        <h3>自己的内网（不想用 Tailscale 的时候）</h3>
+        <div class="row">
+          <input id="external" type="text" placeholder="http://192.168.1.50:8791" />
+          <button id="saveExternal" type="button">保存地址</button>
+        </div>
+        <p class="note" id="externalNote"></p>
+        <div id="bindList" class="list"></div>
         <div class="actions">
           <button id="diagnose" type="button">诊断连接</button>
         </div>

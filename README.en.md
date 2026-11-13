@@ -50,7 +50,7 @@ The service keeps one budget for the whole of it: a hundred wrong tries in five 
 
 The script keeps the token in the keychain of Scriptable, and the three widgets of one iPhone share it.
 
-Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js`.
+Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js`. The service address may be an address of your own network (for instance `http://192.168.1.50:8791`); only a plain HTTP address out in the public internet is refused.
 
 ## Device management
 
@@ -85,13 +85,31 @@ When the way cannot be read, the page says so instead of guessing. The button "d
 
 The network cards of this computer are listed as well: name, IPv4, IPv6, the length of the network part, and whether the card is Tailscale, Wi-Fi, wired or virtual. **These addresses are for the computer only; the phone API never gets them.** They are there to help: when the phone cannot be reached, look at the address of this computer in the LAN and at the address of the tailnet.
 
-**Tailscale stays the default way in.** The phone does not go around the tailnet just because this computer has a 192.168.x.x: a direct way over the LAN would have to deal with plain HTTP (or with HTTPS of its own), with addresses that move when the router hands out new ones, and with the local network permission of iOS. That is a new hole to look after, and the tailnet address is stable on both sides. The direct way over the LAN is not implemented in this release; only the addresses are discovered.
+**Tailscale stays the default way in.** The phone does not go around the tailnet just because this computer has a 192.168.x.x: a direct way over the LAN would have to deal with plain HTTP (or with HTTPS of its own), with addresses that move when the router hands out new ones, and with the local network permission of iOS. That is a new hole to look after, and the tailnet address is stable on both sides.
+
+If you want a road of your own, it is in the next part: you choose it, you write it down, and it is yours to look after. It never happens on its own.
+
+## A network of your own (when you do not want Tailscale)
+
+Not everybody wants Tailscale: there is a Headscale of your own (the official client pointed at your own server is enough — the plugin cannot tell the difference), a server of your own, or an address inside the network of your company. **You can write an address of your own in the "Network" part of the console** (`http://192.168.1.50:8791`; with a proxy of yours in front: `https://my-server/widget`). After that:
+
+- the phone is told that address when it pairs, and the widget and the page on the phone use it;
+- no Tailscale forwarding is built any more, and nothing of Tailscale is needed for this;
+- the phone side can also open a door on an address this computer really has (one click in the console), so that no proxy is needed at all and the phone goes over the LAN itself.
+
+What to keep in mind:
+
+- the road is **plain HTTP**, and the token travels inside it. Unless you put HTTPS of your own in front, use it only on a network you trust yourself;
+- when the phone goes to an address of the LAN, the iPhone asks for the "local network" permission — allow it;
+- addresses move: when the router hands out a new one the phone cannot find the service any more, and you write the new address in the console;
+- the firewall: the phone comes in over the LAN, so the firewall of Windows may shut that door; the first time, let it through (the "private networks" of Windows are enough);
+- the way through Tailscale stays the default and the easiest. Tailscale steps aside only once you have written an address of your own.
 
 ## The page on the phone
 
 Tapping the widget opens the usage page on the phone: the remaining quota of every subscription, today's tokens, the last seven days and the rankings by model, vendor and client, the same numbers the computer shows.
 
-The page opens with the read-only token of the widget. The token travels in the `#token=` part of the address and is wiped from there as soon as the page is open; Scriptable keeps it from then on. The page is served on the tailnet side only, the console of the computer stays on this computer.
+The page opens with the read-only token of the widget. The token travels in the `#token=` part of the address and is wiped from there as soon as the page is open; Scriptable keeps it from then on. The page is served on the tailnet side only (on your own network, when you have written an address of your own), the console of the computer stays on this computer.
 
 ## Widget parameter
 
@@ -150,7 +168,7 @@ The forwarding of the plugin is taken away with it.
 - The service only reads the local API of Magpie (`127.0.0.1:3425`). It does not write the configuration of Magpie and does not touch the logins.
 - The tokens are random, read only and stay in the directory of Magpie; the service keeps only their hashes. There is no shared token: one token per phone, and revoking one stops that phone alone. Only the plugin page of this computer and the phone that carries a pairing code can get one.
 - The addresses of the LAN are only shown in the console of the computer; the phone API does not have them.
-- The service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed.
+- By default the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), the firewall has to let it through once, and that road is plain HTTP.
 
 ## Development
 

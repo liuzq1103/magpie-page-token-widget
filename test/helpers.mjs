@@ -95,7 +95,10 @@ export async function startGateway(routes = {}) {
   return {
     url: `http://127.0.0.1:${port}`,
     calls,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () => new Promise((resolve) => {
+      if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+      server.close(resolve);
+    }),
   };
 }
 
