@@ -27,7 +27,7 @@ const todayAnswer = {
     { id: 'minimax-cn#key', provider: 'minimax-cn', calls: 60, input: 600, output: 300, cache_read: 0, cache_write: 0, errors: 0, reasoning: 0, cost: 1.5 },
   ],
   accounts: [
-    { id: 'codex@alice@example.com', provider: 'codex', account: 'alice@example.com', calls: 40, input: 400, output: 200, cache_read: 0, cache_write: 0, errors: 0, reasoning: 0, cost: 2 },
+    { id: 'codex@alpha@example.com', provider: 'codex', account: 'alpha@example.com', calls: 40, input: 400, output: 200, cache_read: 0, cache_write: 0, errors: 0, reasoning: 0, cost: 2 },
   ],
   series: [
     { label: '00', time: '2026-11-13T00:00:00+08:00', calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0 },
@@ -70,7 +70,7 @@ before(async () => {
 
 test('the kept answer of the quota is used and the plain one is not', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -100,7 +100,7 @@ test('the kept answer of the quota is used and the plain one is not', async () =
 test('a cold start asks the plain answer once', async () => {
   const gateway = await startGateway({
     '/v1/magpie/quotas?kept=1': quotaAnswer([]),
-    '/v1/magpie/quotas': quotaAnswer([quotaRow('zhipu', 'bob@example.com')]),
+    '/v1/magpie/quotas': quotaAnswer([quotaRow('zhipu', 'beta@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -148,7 +148,7 @@ test('the plain answer is asked at most once every half a minute', async () => {
 test('the plain answer is only a fallback for a cold start', async () => {
   const gateway = await startGateway({
     '/v1/magpie/quotas?kept=1': quotaAnswer([]),
-    '/v1/magpie/quotas': quotaAnswer([quotaRow('zhipu', 'bob@example.com')]),
+    '/v1/magpie/quotas': quotaAnswer([quotaRow('zhipu', 'beta@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -171,8 +171,8 @@ test('the plain answer is only a fallback for a cold start', async () => {
 test('the usage of an account belongs to that account', async () => {
   const gateway = await startGateway({
     '/v1/magpie/quotas?kept=1': quotaAnswer([
-      quotaRow('codex', 'alice@example.com'),
-      quotaRow('codex', 'bob@example.com'),
+      quotaRow('codex', 'alpha@example.com'),
+      quotaRow('codex', 'beta@example.com'),
     ]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
@@ -182,8 +182,8 @@ test('the usage of an account belongs to that account', async () => {
     const collector = collectorFor(gateway, local);
     await collector.refresh();
     const cards = collector.overview().subscriptions;
-    const first = cards.find(card => card.id === 'codex@alice');
-    const second = cards.find(card => card.id === 'codex@liuzq1103');
+    const first = cards.find(card => card.id === 'codex@alpha');
+    const second = cards.find(card => card.id === 'codex@beta');
     assert.ok(first);
     assert.ok(second);
     assert.equal(first.accountUsage.today.requests, 40);
@@ -249,7 +249,7 @@ test('a broken quota does not touch the reading of today', async () => {
 
 test('a broken day does not touch the week', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': 'broken',
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -270,7 +270,7 @@ test('a broken day does not touch the week', async () => {
 test('the numbers of the last good reading stay when the reading fails', async () => {
   let broken = false;
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': () => (broken ? 'broken' : quotaAnswer([quotaRow('codex', 'alice@example.com')])),
+    '/v1/magpie/quotas?kept=1': () => (broken ? 'broken' : quotaAnswer([quotaRow('codex', 'alpha@example.com')])),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -295,7 +295,7 @@ test('the numbers of the last good reading stay when the reading fails', async (
 test('an old snapshot comes back when the reading takes too long', async () => {
   let broken = false;
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': () => (broken ? 'hang' : quotaAnswer([quotaRow('codex', 'alice@example.com')])),
+    '/v1/magpie/quotas?kept=1': () => (broken ? 'hang' : quotaAnswer([quotaRow('codex', 'alpha@example.com')])),
     '/v1/magpie/usage?period=today': () => (broken ? 'hang' : todayAnswer),
     '/v1/magpie/usage/requests?period=7d&limit=1': () => (broken ? 'hang' : weekAnswer),
   });
@@ -321,7 +321,7 @@ test('an old snapshot comes back when the reading takes too long', async () => {
 
 test('many readers share one reading', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -361,8 +361,8 @@ test('the service slows down when nobody is watching', async () => {
 test('an older Magpie is still read', async () => {
   const gateway = await startGateway({
     '/v1/magpie/quotas?kept=1': quotaAnswer([
-      quotaRow('codex', 'alice@example.com'),
-      quotaRow('codex', 'bob@example.com'),
+      quotaRow('codex', 'alpha@example.com'),
+      quotaRow('codex', 'beta@example.com'),
     ]),
     // The newer answer is not there.
     '/v1/magpie/usage?period=today': 'broken',
@@ -379,12 +379,12 @@ test('an older Magpie is still read', async () => {
         { label: '00', time: '2026-11-13T00:00:00+08:00', calls: 100, input: 1000, output: 500, cache_read: 2000, cache_write: 0 },
       ],
     },
-    '/v1/magpie/usage/requests?period=today&limit=1&account=alice%40example.com': {
+    '/v1/magpie/usage/requests?period=today&limit=1&account=alpha%40example.com': {
       calls: 40, input: 400, output: 200, cache_read: 0, cache_write: 0,
     },
     // The second account is not answered by this older Magpie; it must not
     // take the numbers of the first one with it.
-    '/v1/magpie/usage/requests?period=today&limit=1&account=bob%40example.com': 'broken',
+    '/v1/magpie/usage/requests?period=today&limit=1&account=beta%40example.com': 'broken',
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
   const local = await tempDir();
@@ -396,8 +396,8 @@ test('an older Magpie is still read', async () => {
     assert.equal(overview.sources.today.state, 'ok');
     assert.equal(overview.usage.today.requests, 100);
     // And every account keeps its own numbers.
-    const first = overview.subscriptions.find(card => card.id === 'codex@alice');
-    const second = overview.subscriptions.find(card => card.id === 'codex@liuzq1103');
+    const first = overview.subscriptions.find(card => card.id === 'codex@alpha');
+    const second = overview.subscriptions.find(card => card.id === 'codex@beta');
     assert.equal(first.accountUsage.today.requests, 40);
     assert.equal(second.accountUsage, null);
   } finally {
@@ -408,7 +408,7 @@ test('an older Magpie is still read', async () => {
 
 test('the snapshot is written and read back', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -430,7 +430,7 @@ test('the snapshot is written and read back', async () => {
 
 test('a broken week does not touch the reading of today', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': 'broken',
   });
@@ -450,7 +450,7 @@ test('a broken week does not touch the reading of today', async () => {
 
 test('the whole address of an account never reaches the disk', async () => {
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });
@@ -459,9 +459,9 @@ test('the whole address of an account never reaches the disk', async () => {
     const collector = collectorFor(gateway, local);
     await collector.refresh();
     const written = await readFile(path.join(local, 'snapshot.json'), 'utf8');
-    assert.equal(written.includes('alice@example.com'), false);
+    assert.equal(written.includes('alpha@example.com'), false);
     // The name of the account is there: the console shows it anyway.
-    assert.ok(written.includes('alice'));
+    assert.ok(written.includes('alpha'));
   } finally {
     await gateway.close();
     await cleanup(local);
@@ -472,7 +472,7 @@ test('the console of the computer counts as activity', async () => {
   // A computer without a phone must not stop reading: the console of the
   // computer is somebody watching the numbers.
   const gateway = await startGateway({
-    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alice@example.com')]),
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
     '/v1/magpie/usage?period=today': todayAnswer,
     '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
   });

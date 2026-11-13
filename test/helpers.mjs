@@ -117,7 +117,7 @@ export const tailscaleStatus = {
   Version: '1.104.6',
   BackendState: 'Running',
   Self: {
-    HostName: 'liuzqPC',
+    HostName: 'testnode',
     DNSName: 'testnode.tail1234.ts.net.',
     OS: 'windows',
     TailscaleIPs: ['100.64.0.1', 'fd7a:115c:a1e0::1'],
@@ -133,8 +133,8 @@ export const tailscaleStatus = {
       Online: true,
       Active: true,
       Relay: '',
-      CurAddr: '192.168.123.44:41641',
-      TailscaleIPs: ['100.83.33.90'],
+      CurAddr: '192.168.10.44:41641',
+      TailscaleIPs: ['100.64.0.2'],
     },
   },
 };

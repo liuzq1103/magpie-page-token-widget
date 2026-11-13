@@ -6,7 +6,7 @@
 
 > 数据来自你自己的 Magpie，脚本里不含任何密钥。组件显示的仍是 Magpie 的口径。
 
-![插件页面](docs/console.png)
+插件页长这样：上面是扫码配对，下面依次是状态、数据更新、网络连接、设备管理、显示哪些订阅、高级设置。
 
 ## 它做什么
 
@@ -47,6 +47,8 @@ magpie plugin add ./magpie-page-token-widget
 配对码只能用一次，而且只活十分钟：十分钟之后它自己就废了，重新生成一个就行；用掉之后旧码立刻作废。每配一台手机，它都会拿到属于自己的那枚只读令牌，服务端只留这枚令牌的哈希，明文只在配对的那一次出现，之后再也拿不出来。
 
 猜配对码是没有便宜的：同一个配对码连续猜错十次就锁五分钟，锁的是这个码本身，不是那台机器。原因是转发过来的手机在服务器看来都是本机的回环地址，按地址锁的话，尾网上任何一个人猜错十次就能把所有人的配对都关上。请求头里的 `X-Forwarded-For` 谁都能写，服务器不看它。
+
+服务还有一本总账：五分钟里猜错一百次（不管猜的是哪个码），配对页、组件脚本和配对接口一起先关上，等五分钟满了自动恢复。电脑上点一次「重新生成配对码」会把总账清空，手动马上就能再配。真正让配对码难猜的不是这两道门，而是它有九十六位随机数、只活十分钟、只能用一次。
 
 手机脚本把令牌存在 Scriptable 的钥匙串里，同一台 iPhone 上的三个组件共用这一枚令牌。
 
@@ -193,6 +195,8 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 The pairing code works once and lives ten minutes at most: after that it is dead, and a new one replaces it at once. Every phone that pairs gets a read-only token of its own. The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again.
 
 Guessing a code is not cheap: ten wrong tries at one code lock that code for five minutes. The lock follows the code, not the machine — behind the Tailscale forward every phone arrives as the loopback of this computer, so a lock per address would let anybody on the tailnet shut the pairing of everybody else. An `X-Forwarded-For` header can be written by anybody, so it is not believed.
+
+The service keeps one budget for the whole of it: a hundred wrong tries in five minutes, whichever code they were aimed at, and the pairing page, the widget script and the pairing door all close until the five minutes are up. Asking for a new pairing code at the computer empties that budget at once, so a person can open the door again without waiting. What really makes a code hard to guess is neither of those two doors: it has ninety-six bits of randomness, it lives ten minutes and it opens the door once.
 
 The script keeps the token in the keychain of Scriptable, and the three widgets of one iPhone share it.
 

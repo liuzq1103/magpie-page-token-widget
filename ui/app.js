@@ -344,11 +344,14 @@
     if (qr && !state.qr) qr.closest('.qr')?.classList.add('empty');
     text('pairingURL', state.pairingURL || '还没有找到 Tailscale 地址');
     const minutes = Math.max(0, Math.round((state.pairingExpiresIn || 0) / 60));
+    const blocked = Math.max(0, Math.round((state.pairingBlocked || 0) / 60));
     text(
       'pairNote',
-      state.pairingURL
-        ? `配对码只能用一次，十分钟后也会作废（还剩 ${minutes} 分钟）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
-        : 'Tailscale 没有连上，或者这台电脑没有尾网地址。手机和电脑要在同一个 Tailscale 里。'
+      state.pairingBlocked
+        ? `猜错的次数太多，配对先关上 ${blocked} 分钟。点「重新生成配对码」可以马上再开。`
+        : state.pairingURL
+          ? `配对码只能用一次，十分钟后也会作废（还剩 ${minutes} 分钟）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
+          : 'Tailscale 没有连上，或者这台电脑没有尾网地址。手机和电脑要在同一个 Tailscale 里。'
     );
     text(
       'lifetime',

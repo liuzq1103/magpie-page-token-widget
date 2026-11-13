@@ -13,7 +13,7 @@ const cards = {
     { address: '::1', netmask: 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', family: 'IPv6', mac: '00:00:00:00:00:00', internal: true },
   ],
   'Ethernet': [
-    { address: '192.168.123.230', netmask: '255.255.255.0', family: 'IPv4', mac: 'a4:bb:6d:11:22:33' },
+    { address: '192.168.1.50', netmask: '255.255.255.0', family: 'IPv4', mac: 'a4:bb:6d:11:22:33' },
     { address: 'fe80::1a2b:3c4d:5e6f:7a8b', netmask: '64', family: 'IPv6', mac: 'a4:bb:6d:11:22:33' },
     { address: 'fd00:1234::5', netmask: '64', family: 'IPv6', mac: 'a4:bb:6d:11:22:33' },
   ],
@@ -23,7 +23,7 @@ const cards = {
     { address: '224.0.0.251', netmask: '224.0.0.0', family: 'IPv4', mac: 'aa:bb:cc:dd:ee:ff' },
   ],
   'vEthernet (WSL)': [
-    { address: '172.19.128.1', netmask: '255.255.240.0', family: 'IPv4', mac: '00:15:5d:00:00:01' },
+    { address: '172.20.0.1', netmask: '255.255.240.0', family: 'IPv4', mac: '00:15:5d:00:00:01' },
   ],
   'Tailscale': [
     { address: '100.64.0.1', netmask: '255.192.0.0', family: 'IPv4', mac: '00:15:5d:00:00:02' },
@@ -47,7 +47,7 @@ test('every network card of the machine is listed with its addresses', () => {
   assert.equal(list.length, 5);
   const ethernet = list.find(entry => entry.name === 'Ethernet');
   assert.equal(ethernet.kind, 'ethernet');
-  assert.equal(ethernet.ipv4[0].address, '192.168.123.230');
+  assert.equal(ethernet.ipv4[0].address, '192.168.1.50');
   assert.equal(ethernet.ipv4[0].prefix, 24);
   // The private address of IPv6 is kept, the link local one is not.
   assert.deepEqual(ethernet.ipv6.map(item => item.address), ['fd00:1234::5']);
@@ -65,7 +65,7 @@ test('the addresses of the home network are the private ones', () => {
   assert.deepEqual(names.sort(), ['Ethernet', 'WLAN 2']);
   const ethernet = candidates.find(entry => entry.name === 'Ethernet');
   // The private address of the network and the private address of IPv6.
-  assert.deepEqual(ethernet.addresses, ['192.168.123.230', 'fd00:1234::5']);
+  assert.deepEqual(ethernet.addresses, ['192.168.1.50', 'fd00:1234::5']);
   const wireless = candidates.find(entry => entry.name === 'WLAN 2');
   assert.deepEqual(wireless.addresses, ['10.0.0.42']);
   // The card of Tailscale and the cards of the virtual machines are not
@@ -84,7 +84,7 @@ test('the length of the network part is read from the mask', () => {
 
 test('the way to a phone is told apart', () => {
   // A phone that answers straight from its own address.
-  assert.equal(peerPath({ Online: true, CurAddr: '192.168.123.44:41641' }), 'direct');
+  assert.equal(peerPath({ Online: true, CurAddr: '192.168.10.44:41641' }), 'direct');
   // A phone that goes through a relay server.
   assert.equal(peerPath({ Online: true, CurAddr: '', Relay: 'hkg' }), 'derp');
   // A phone that goes through another device of the tailnet.
@@ -116,7 +116,7 @@ test('the status of the tailnet is read with the mock of the command', async () 
   assert.equal(answer.ios.length, 1);
   assert.equal(answer.ios[0].name, 'iphone');
   assert.equal(answer.ios[0].path, 'direct');
-  assert.deepEqual(answer.ios[0].ips, ['100.83.33.90']);
+  assert.deepEqual(answer.ios[0].ips, ['100.64.0.2']);
   // The command of the mock was used, not the real one.
   assert.deepEqual(mock.calls, ['status --json']);
 });
@@ -142,7 +142,7 @@ test('a phone that is not there is not guessed at', async () => {
       Peer: {
         p1: {
           HostName: 'iphone', DNSName: 'iphone.tail1234.ts.net.', OS: 'iOS',
-          Online: false, Relay: 'hkg', CurAddr: '', TailscaleIPs: ['100.83.33.90'],
+          Online: false, Relay: 'hkg', CurAddr: '', TailscaleIPs: ['100.64.0.2'],
         },
       },
     },
@@ -153,12 +153,12 @@ test('a phone that is not there is not guessed at', async () => {
 });
 
 test('the ping of a phone is asked for only when the user wants it', async () => {
-  const mock = mockTailscale({ status: tailscaleStatus, ping: 'pong from 100.83.33.90:41641 in 9ms' });
+  const mock = mockTailscale({ status: tailscaleStatus, ping: 'pong from 100.64.0.2:41641 in 9ms' });
   const { ping } = await import('../lib/tailnet.mjs');
-  const answer = await ping('100.83.33.90', mock.runner);
+  const answer = await ping('100.64.0.2', mock.runner);
   assert.equal(answer.ok, true);
   assert.equal(answer.path, 'direct');
-  assert.deepEqual(mock.calls, ['ping --c 3 --timeout 3s 100.83.33.90']);
+  assert.deepEqual(mock.calls, ['ping --c 3 --timeout 3s 100.64.0.2']);
 });
 
 test('the network cards of this computer are listed as well', () => {

@@ -66,7 +66,9 @@ test('the service starts with sensible defaults', async () => {
   assert.ok(state.refresh.label);
   assert.deepEqual(state.display.subscriptions, ['codex', 'minimax', 'glm']);
   assert.equal(state.port > 0, true);
-  assert.equal(state.phonePort, state.port + 1);
+  // The phone side has a port of its own, and it is not the console.
+  assert.equal(state.phonePort > 0, true);
+  assert.notEqual(state.phonePort, state.port);
   assert.match(state.upstream, /^http:\/\/127\.0\.0\.1:\d+$/);
 });
 
@@ -204,10 +206,21 @@ test('the temporary files of a run that was killed are swept away', async () => 
   await writeFile(old, 'half a file');
   const stale = new Date(Date.now() - 3 * 60 * 60 * 1000);
   await utimes(old, stale, stale);
+  // A write that is running right now has a fresh file of the same name.
+  // It must not be swept away, and neither may a file of somebody else.
+  const fresh = path.join(local, 'state.json.1234.cafe.tmp');
+  await writeFile(fresh, 'a file of this very moment');
+  const foreign = path.join(local, 'notes.tmp');
+  await writeFile(foreign, 'a note of somebody else');
+  const backup = path.join(local, 'state.json.bak');
+  await writeFile(backup, 'a copy of yesterday');
   const service = await start(local);
   try {
     const names = await readdir(local);
     assert.equal(names.includes(path.basename(old)), false);
+    assert.equal(names.includes(path.basename(fresh)), true);
+    assert.equal(names.includes(path.basename(foreign)), true);
+    assert.equal(names.includes(path.basename(backup)), true);
   } finally {
     await service.close();
     await cleanup(local);

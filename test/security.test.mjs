@@ -292,7 +292,7 @@ test('the console and the phone put foreign words into the page as text', async 
   // outside goes into the page as text.
   for (const file of ['ui/app.js', 'mobile/app.js', 'page/boot.js']) {
     const source = await readFile(path.join(root, file), 'utf8');
-    for (const sink of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) {
+    for (const sink of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'srcdoc', 'javascript:', 'eval(', 'new Function']) {
       assert.equal(source.includes(sink), false, `${file} must not use ${sink}`);
     }
   }
@@ -346,7 +346,8 @@ test('the page of the pairing code and the script are shut out as well', async (
   const otherBase = `http://127.0.0.1:${other.port}`;
   try {
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      await fetch(otherBase + '/scriptable/UsageWidget.js?code=wrong');
+      const warm = await fetch(otherBase + '/scriptable/UsageWidget.js?code=wrong');
+      assert.equal(warm.status, 403);
     }
     const script = await fetch(otherBase + '/scriptable/UsageWidget.js?code=wrong');
     assert.equal(script.status, 429);
@@ -388,4 +389,40 @@ test('the time of the last visit is written at most every five minutes', async (
   // After five minutes it is written again.
   assert.equal(noteAccess(device, now + 5 * 60_000), true);
   assert.equal(device.lastAccessAt, new Date(now + 5 * 60_000).toISOString());
+});
+
+test('a flood of wrong codes is shut out, and a new code opens the door again', async () => {
+  // The service keeps one budget for all of its doors: a hundred wrong tries
+  // in five minutes, whichever code they were aimed at, and the pairing is
+  // closed for everybody. The person at the computer empties that budget by
+  // asking for a new code, so the door is never stuck for good.
+  const otherDir = await tempDir();
+  const other = await start(otherDir);
+  const otherBase = `http://127.0.0.1:${other.port}`;
+  try {
+    const token = await consoleTokenOf(otherDir);
+    await waitForConsole(otherBase, token);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const wrong = await post(otherBase, '/api/v1/session', { code: `wrong-${attempt}` });
+      assert.equal(wrong.status, 403);
+    }
+    // The bag is full now, so the next try is told to wait.
+    const shut = await post(otherBase, '/api/v1/session', { code: 'wrong-again' });
+    assert.equal(shut.status, 429);
+    // The page of the code and the script are shut as well.
+    const page = await fetch(otherBase + '/p/wrong-again');
+    assert.equal(page.status, 429);
+    const script = await fetch(otherBase + '/scriptable/UsageWidget.js?code=wrong-again');
+    assert.equal(script.status, 429);
+    // A new code at the computer empties the bag at once.
+    const rotated = await post(otherBase, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: token });
+    assert.equal(rotated.status, 200);
+    const fresh = (await rotated.json()).pairingCode;
+    const good = await post(otherBase, '/api/v1/session', { code: fresh });
+    assert.equal(good.status, 200);
+    assert.ok((await good.json()).token);
+  } finally {
+    await other.close();
+    await cleanup(otherDir);
+  }
 });
