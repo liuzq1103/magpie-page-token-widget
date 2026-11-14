@@ -9,12 +9,12 @@
 import { after, before, test } from 'node:test';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, TOKEN_HEADER } from '../lib/server.mjs';
 import { bindCandidates } from '../lib/tailnet.mjs';
-import { cleanup, freePort, mockTailscale, tempDir } from './helpers.mjs';
+import { cleanup, freePort, mockTailscale, tailscaleStatus, tempDir } from './helpers.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,8 +28,10 @@ const start = async (dir, options = {}) => startServer({
     listenTailnet: false,
     forward: false,
     gatewayURL: 'http://127.0.0.1:1',
-    // The tests never touch the real Tailscale of this computer.
-    tailscaleRunner: mockTailscale().runner,
+    // The tests never touch the real Tailscale of this computer: the mock
+    // answers with the status of a tailnet, so that the listener of the
+    // tailnet is opened on any machine, with or without Tailscale.
+    tailscaleRunner: mockTailscale({ status: tailscaleStatus }).runner,
     ...options,
   },
 });
@@ -161,11 +163,30 @@ test('a phone still pairs over the tailnet', async () => {
   assert.equal(overview.status, 200);
 });
 
-test('the door of the own network opens the phone side only', async () => {
-  const own = bindCandidates().find((entry) => entry.kind === 'private');
-  if (!own) return; // a computer without a home network has nothing to open
+test('the door of the own network opens the phone side only', async (t) => {
+  // The address of the own network is an address of this computer. A wire
+  // comes first, a virtual adapter is the next best thing.
+  const candidates = bindCandidates();
+  const own = candidates.find((entry) => entry.kind === 'wifi' || entry.kind === 'ethernet')
+    || candidates.find((entry) => entry.kind !== 'tailscale');
+  if (!own) {
+    // A computer without a private address has nothing to open. It is said
+    // out loud, so that a green run never hides a test that did nothing.
+    return t.skip('this computer has no private address of its own');
+  }
+
   const lanDir = await tempDir();
-  const lan = await start(lanDir, { listenAddress: own.address });
+  // The address of the own network is not an option of the service: it is
+  // what the user wrote down, and it is read from the state file.
+  await writeFile(
+    path.join(lanDir, 'state.json'),
+    JSON.stringify({
+      version: 1,
+      consoleToken: 'c'.repeat(43),
+      settings: { listenAddress: own.address },
+    }),
+  );
+  const lan = await start(lanDir);
   try {
     const { port, phonePort } = lan;
     assert.ok(await waitFor(own.address, phonePort), 'the phone side has to answer on the own network');

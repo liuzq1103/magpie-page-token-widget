@@ -162,7 +162,7 @@ Who may do what is decided by **the listener that took the connection**, not by 
 - `Host`, `Origin`, `X-Forwarded-Proto` and `X-Forwarded-Host` are things a client can write, so the plugin does not take them for a pass. `Host` only stops an address that was written down wrong: the console knows `127.0.0.1` / `localhost` and nothing else, and a forwarded header is never believed.
 - So a forged `Host: 127.0.0.1:8790` in the tailnet is of no use: that connection lands on the phone side and gets the page of the phone, not the console.
 - The forward of Tailscale points at the **port of the phone side**; the console stays on this computer.
-- Only the hash of a token is kept; the device management shows the name and the last visit, never the token itself.
+- The tokens of the phones are kept as hashes; the device management shows the name and the last visit, never the token itself. The token of the console itself stays in the state file of the service on this computer (only this user can read it, the file is 0600), and the page that carries it is served on 127.0.0.1 only.
 
 Tests keep these lines (in `test/boundary.test.mjs`): the forged Host, the access across the listeners, the console routes from the wrong side, the token that does not leak, and the pairing that still works.
 
@@ -268,7 +268,7 @@ tailscale serve --tcp=8790 off
 ## Privacy
 
 - The service only reads the local API of Magpie (`127.0.0.1:3425` by default, this computer only). It does not write the configuration of Magpie and does not touch the logins.
-- The tokens are random, read only and stay in the directory of Magpie; the service keeps only their hashes. There is no shared token: one token per phone, and revoking one stops that phone alone. Only the plugin page of this computer and the phone that carries a pairing code can get one.
+- The tokens are random, read only and stay in the directory of Magpie; the service keeps only the hash of each phone's token (the token of the console itself stays in the state file on this computer, readable by this user alone). There is no shared token: one token per phone, and revoking one stops that phone alone. Only the plugin page of this computer and the phone that carries a pairing code can get one.
 - The addresses of the LAN are only shown in the console of the computer; the phone API does not have them.
 - In the default (Tailscale) mode the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), and the firewall has to let it through once. Whether that road is plain depends on the address you wrote: with an HTTPS domain the leg from the phone to the proxy is encrypted (the leg from the proxy to the plugin is still plain HTTP), with an address inside your own network it is plain all the way.
 

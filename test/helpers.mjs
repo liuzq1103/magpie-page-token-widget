@@ -56,7 +56,18 @@ export const freePort = async () => {
 };
 
 export const cleanup = async (dir) => {
-  if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  if (!dir) return;
+  // A file of the service may still be open when a test is over, and Windows
+  // says so with EBUSY. The directory is in the temporary folder of the
+  // operating system, so a file that is still open must not fail a test.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
 };
 
 export const readJSON = async (file) => JSON.parse(await (await import('node:fs/promises')).readFile(file, 'utf8'));
