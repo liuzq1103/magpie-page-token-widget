@@ -4,7 +4,7 @@ import { readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, TOKEN_HEADER } from '../lib/server.mjs';
-import { cleanup, freePort, mockTailscale, tempDir } from './helpers.mjs';
+import { cleanup, freePort, mockTailscale, startGateway, tempDir } from './helpers.mjs';
 
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -162,6 +162,68 @@ test('the choices survive a restart of the service', async () => {
   const after = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: again } })).json();
   assert.equal(after.display.widgetMode, 'used');
   assert.equal(after.display.widgetCard, 'codex@Alice');
+});
+
+test('the order of the subscriptions reaches the phone and stays there', async () => {
+  // The order the user gives by dragging the rows is the order the phone
+  // shows, and it is still that order when the service starts again.
+  const quotaRow = (provider, user) => ({
+    provider,
+    user,
+    readAt: '2026-11-13T12:00:00.000Z',
+    windows: [{ name: '5h', used: 12, remaining: 88, resetsAt: '2026-11-13T17:00:00.000Z' }],
+  });
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': { data: [quotaRow('codex', 'alpha@example.com'), quotaRow('codex', 'beta@example.com'), quotaRow('minimax', 'gamma@example.com')] },
+    '/v1/magpie/usage?period=today': { calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0, providerKeys: [], accounts: [], series: [] },
+    '/v1/magpie/usage/requests?period=7d&limit=1': { calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0, by: { model: [], provider: [], agent: [] }, series: [] },
+  });
+  const local = await tempDir();
+  let own = await start(local, { gatewayURL: gateway.url });
+  const ownBase = `http://127.0.0.1:${own.port}`;
+  try {
+    const consoleToken = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const response = await fetch(ownBase + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: consoleToken } });
+      if (response.status !== 503) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const paired = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
+    const session = await post(ownBase, '/api/v1/session', { code: paired.pairing.code, name: '排序的手机' });
+    const phoneToken = (await session.json()).token;
+    const readCards = async () => {
+      const answer = await fetch(ownBase + '/api/v1/overview', { headers: { Authorization: 'Bearer ' + phoneToken } });
+      const body = await answer.json();
+      return (body.subscriptions || []).map(card => card.id);
+    };
+    // The first reading waits for the gateway; the cards are there then.
+    let cards = [];
+    for (let attempt = 0; attempt < 20 && cards.length < 3; attempt += 1) {
+      cards = await readCards();
+      if (cards.length < 3) await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert.deepEqual(cards.sort(), ['codex@alpha', 'codex@beta', 'minimax']);
+
+    // The order the console writes is the order the phone gets.
+    const chosen = await post(ownBase, '/api/v1/console/options', { subscriptions: ['minimax', 'codex@alpha'] }, { [TOKEN_HEADER]: consoleToken });
+    assert.equal(chosen.status, 200);
+    assert.deepEqual(await readCards(), ['minimax', 'codex@alpha']);
+
+    // And it is still that order after the service starts again.
+    await own.close();
+    own = await start(local, { gatewayURL: gateway.url });
+    const again = `http://127.0.0.1:${own.port}`;
+    const state = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
+    assert.deepEqual(state.settings.subscriptions, ['minimax', 'codex@alpha']);
+    const answer = await fetch(again + '/api/v1/overview', { headers: { Authorization: 'Bearer ' + phoneToken } });
+    assert.equal(answer.status, 200);
+    const body = await answer.json();
+    assert.deepEqual(body.subscriptions.map(card => card.id), ['minimax', 'codex@alpha']);
+  } finally {
+    await own.close();
+    await gateway.close();
+    await cleanup(local);
+  }
 });
 
 test('the diagnosis does not change the network of this computer', async () => {

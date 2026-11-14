@@ -74,9 +74,49 @@ widget.setPadding(family === "small" ? 14 : layout.vertical, 16, family === "sma
 widget.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
 let settings, data, cached = false, failure = "";
 try { settings = JSON.parse(Keychain.get(SETTINGS_KEY)); } catch {}
-// A script that came from the plugin carries a one-time code. It is exchanged
-// for the token of the service, which is then kept in the keychain.
-if ((!settings || !settings.token) && PAIRED && PAIRED.code) {
+// A token the service does not know is taken out of the keychain. The phone
+// is then unpaired, and it stays that way until it is paired once more — so
+// the reason is written down and shown on every refresh, not only on the one
+// that heard the 401.
+if (settings && settings.pairingNeeded) failure = "令牌无效，请重新配对";
+const storedToken = settings && settings.token ? String(settings.token) : "";
+const serviceURL = (settings && settings.baseURL) || (PAIRED && PAIRED.baseURL) || "";
+// A phone that is going away takes its own row off the list of the devices.
+// The token of the row is the only thing that is asked for, and a token that
+// has been revoked is enough: the row is dead anyway.
+async function forgetToken(token, baseURL) {
+  if (!token || !baseURL) return false;
+  try {
+    const request = new Request(baseURL + "/api/v1/device/forget");
+    request.method = "POST";
+    request.headers = { Authorization: "Bearer " + token, "Content-Type": "application/json" };
+    request.body = "{}";
+    request.timeoutInterval = 8;
+    const answer = await request.loadJSON();
+    return !!(answer && answer.forgotten);
+  } catch {
+    return false;
+  }
+}
+// The service puts its name on every answer that refuses a token. A phone
+// that reads it knows the refusal came from the service and not from
+// something that stands in front of it, so a good token is not thrown away
+// because a proxy wanted a password of its own.
+function refusalIsOurs(response) {
+  if (!response || !response.headers) return false;
+  const headers = response.headers;
+  const name = Object.keys(headers).find(key => String(key).toLowerCase() === "x-token-widget-service");
+  return name ? String(headers[name]) === "magpie-page-token-widget" : false;
+}
+// A script that came from the plugin carries a one-time code. The code is
+// exchanged for the token of the service, which is then kept in the keychain.
+// A new code is tried before the token that is already in the keychain: a
+// token that the service does not know any more would otherwise block the
+// way back in, and reading the code again would not help. When the exchange
+// does not work, the token that is there is used as it was.
+if (PAIRED && PAIRED.code && (!storedToken || (settings.code || "") !== PAIRED.code)) {
+  let exchanged = "";
+  let codeIsSpent = false;
   try {
     const request = new Request(PAIRED.baseURL + "/api/v1/session");
     request.method = "POST";
@@ -84,11 +124,39 @@ if ((!settings || !settings.token) && PAIRED && PAIRED.code) {
     request.body = JSON.stringify({ code: PAIRED.code, name: deviceName() });
     request.timeoutInterval = 12;
     const session = await request.loadJSON();
-    if (session && session.token) {
-      settings = { baseURL: PAIRED.baseURL, token: session.token };
-      Keychain.set(SETTINGS_KEY, JSON.stringify(settings));
-    }
-  } catch {}
+    if (session && session.token) exchanged = String(session.token);
+  } catch (error) {
+    // A code that is refused for good (it is stale, or it has been used) is
+    // not tried again on every refresh. A network that did not answer is not
+    // the code's fault, so the code is tried again the next time.
+    const reason = String((error && error.message) || "");
+    const said = reason.match(/status\s*(\d{3})/i);
+    const status = (error && error.response && Number(error.response.statusCode))
+      || (said ? Number(said[1]) : 0);
+    codeIsSpent = status === 400 || status === 404 || status === 409 || status === 410;
+  }
+  if (exchanged) {
+    // The new token is put away first. If the phone is closed while the old
+    // row is being cleaned up, the token is still there when the phone comes
+    // back — a code that has been used cannot be used a second time.
+    settings = { baseURL: PAIRED.baseURL, token: exchanged, code: PAIRED.code, pairingNeeded: false };
+    try { Keychain.set(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+    // The old token has served its time. Its row is taken off the list, so
+    // the phone does not leave a shadow behind.
+    if (storedToken) await forgetToken(storedToken, PAIRED.baseURL);
+  } else {
+    // The code did not work. A code that is spent is written down so it is
+    // not tried again on every refresh; a code that only failed because the
+    // service did not answer is left alone, so it gets another chance. A new
+    // script with a new code comes in when the phone is paired once more.
+    settings = {
+      baseURL: (settings && settings.baseURL) || PAIRED.baseURL,
+      token: storedToken,
+      code: codeIsSpent ? PAIRED.code : ((settings && settings.code) || ""),
+      pairingNeeded: !!(settings && settings.pairingNeeded)
+    };
+    try { Keychain.set(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+  }
 }
 try { if (fm.fileExists(cachePath)) data = JSON.parse(fm.readString(cachePath)); } catch {}
 if (settings && settings.baseURL && settings.token) {
@@ -116,13 +184,32 @@ if (settings && settings.baseURL && settings.token) {
     const status = (req.response && Number(req.response.statusCode))
       || (error && error.response && Number(error.response.statusCode))
       || (said ? Number(said[1]) : 0);
-    failure = status === 401 || reason.includes("令牌")
-      ? "令牌无效，请重新设置"
-      : status ? "服务返回 " + status
-      : /timed out|timeout|超时/i.test(reason) ? "服务没有回答"
-      : "连不上服务";
+    if (status === 401) {
+      if (refusalIsOurs(req.response) || refusalIsOurs(error && error.response)) {
+        // The service does not know this token any more. It is taken out of the
+        // keychain, the row it belonged to is taken off the list of the
+        // devices, and the phone is told to be paired once more.
+        const dead = settings.token;
+        settings = { baseURL: settings.baseURL, token: "", code: "", pairingNeeded: true };
+        try { Keychain.set(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+        await forgetToken(dead, settings.baseURL);
+        failure = "令牌无效，请重新配对";
+      } else {
+        // The refusal did not come from the service. Something in front of it
+        // does not know the token, and the token may still be good.
+        failure = "服务返回 401";
+      }
+    } else {
+      failure = status ? "服务返回 " + status
+        : /timed out|timeout|超时/i.test(reason) ? "服务没有回答"
+        : "连不上服务";
+    }
   }
-  widget.url = settings.baseURL + "/#token=" + encodeURIComponent(settings.token);
+}
+// The tap opens the usage page even when this phone is not paired any more,
+// so that the page can ask for a token again.
+if (settings && settings.baseURL) {
+  widget.url = settings.baseURL + (settings.token ? "/#token=" + encodeURIComponent(settings.token) : "/");
 }
 function text(parent, value, size, color, weight) {
   const element = parent.addText(String(value));
@@ -243,7 +330,14 @@ function header(status) {
 // nothing but their case.
 const parameter = String(args.widgetParameter || "").split("|").map(part => part.trim()).filter(Boolean);
 const pageParts = parameter.filter(part => /^page=/i.test(part));
-const selectors = parameter.filter(part => part.toLowerCase() !== "used" && part.toLowerCase() !== "remaining" && !/^page=/i.test(part));
+const rawSelectors = parameter.filter(part => part.toLowerCase() !== "used" && part.toLowerCase() !== "remaining" && !/^page=/i.test(part));
+// A token is not a subscription. Somebody who has just copied a read-only
+// token pastes it into the parameter sometimes; the answer "没有找到 <a long
+// string>" does not say what went wrong. A long, silent, single word is a
+// token far more often than it is a subscription, so it is said out loud and
+// the parameter is dropped.
+const looksLikeToken = rawSelectors.some(part => /^[A-Za-z0-9_-]{32,}$/.test(part));
+const selectors = looksLikeToken ? [] : rawSelectors;
 // The plugin side says what the widget shows: the direction of the numbers
 // and the card of the small family. The parameter may still say otherwise,
 // so one widget can differ from the others.
@@ -271,8 +365,28 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       : { name: 13, value: 34, reset: 10, secondary: 10, account: 9, titleGap: 4, barGap: 6, resetGap: 5, rowGap: 16 }
     : dense
       ? { name: tight ? 10 : 11, value: tight ? 18 : 20, titleGap: 1, barGap: 1, resetGap: 3, rowGap: tight ? 4 : 6, account: 0, secondary: 0, reset: 9 }
-      : { name: 12, value: cellWidth < 67 ? 22 : 25, reset: cellWidth < 64 ? 9 : 10, titleGap: 3, barGap: 5, resetGap: 5, rowGap: 0, account: 9, secondary: 9 };
+      // The medium family gives every card two lines of a title and two lines
+      // under the bar. The smallest medium widget has 84 points for a card,
+      // and the lines are made smaller there so that they fit: a card that is
+      // cut off says less than a card with smaller writing.
+      : {
+          name: tight ? 11 : 12,
+          value: tight ? 21 : (cellWidth < 67 ? 22 : 23),
+          reset: tight ? 8 : 9,
+          secondary: tight ? 8 : 9,
+          account: tight ? 8 : 9,
+          titleGap: tight ? 2 : 3,
+          barGap: tight ? 4 : 5,
+          resetGap: tight ? 2 : 3,
+          rowGap: 0
+        };
   const grid = parent.addStack(); grid.layoutVertically(); grid.size = new Size(layout.width, 0);
+  // The account of a card needs a line of its own. When any card of the page
+  // has one, every card gets that line (an empty one where it is not needed),
+  // so the bars of the cards sit on one line; when no card has one, the line
+  // is not given away at all — the smallest medium widget has 84 points for a
+  // card, and every point is needed there.
+  const reserveAccountLine = !large && !dense && style.account > 0 && cards.some(card => splitLabel(card.label).account);
   // Every name of the page takes the size that fits the narrowest of them, so
   // the cards keep one title size.
   // The dense large family has no line of its own for the account, so it
@@ -293,12 +407,18 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       // under it when there is a line for it.
       const parts = splitLabel(card.label);
       const inline = large && dense && parts.account;
-      const accountSize = Math.max(7, Math.min(9, nameSize - 3));
+      const accountSize = Math.max(7, Math.min(style.account || 9, nameSize - 3));
       const vendor = inline ? parts.vendor + " · " + parts.account : parts.vendor;
       text(column, shortenName(vendor, inline ? accountSize : nameSize, cellWidth), inline ? accountSize : nameSize, colors.text, "medium");
       if (parts.account && style.account && !inline) {
         column.addSpacer(1);
         text(column, shortenName(parts.account, accountSize, cellWidth), accountSize, colors.muted);
+      } else if (reserveAccountLine) {
+        // The medium family gives every card the same two lines of a title:
+        // a card without an account keeps the line of the account empty, so
+        // the bars of the cards sit on one line and can be read side by side.
+        column.addSpacer(1);
+        text(column, " ", accountSize, colors.muted);
       }
       column.addSpacer(style.titleGap);
       const valueRow = column.addStack(); valueRow.centerAlignContent();
@@ -328,22 +448,29 @@ function subscriptionGrid(parent, cards, sharedWindow) {
           text(column, windowLabel(secondary) + (showUsed ? " 已用 " : " 剩余 ") + percent(secondary), style.secondary, accent(secondary));
         }
       } else if (!dense) {
-        // The medium family has one line for the reset and for the weekly
-        // limit; two lines do not fit above the bar of a cell.
+        // The medium family has one line for the reset and one line for the
+        // weekly limit. Both of them are short, but together they do not fit
+        // on one line: cut short, the time of the reset is the first thing to
+        // go, and the weekly share is the second.
         column.addSpacer(style.resetGap);
-        const parts = [];
-        if (!sharedWindow) parts.push(windowLabel(primary) + " · ");
-        parts.push(shortReset(primary));
-        if (secondary && style.secondary) parts.push(" · " + windowLabel(secondary) + " " + percent(secondary));
         const size = Math.min(style.reset, cellWidth < 64 ? 8 : 9);
-        text(column, shortenName(parts.join(""), size, cellWidth), size, colors.muted);
+        const first = (sharedWindow ? "" : windowLabel(primary) + " · ") + shortReset(primary);
+        text(column, shortenName(first, size, cellWidth), size, colors.muted);
+        if (secondary && style.secondary) {
+          column.addSpacer(1);
+          const weekly = windowLabel(secondary) + " " + percent(secondary);
+          text(column, shortenName(weekly, style.secondary, cellWidth), style.secondary, accent(secondary));
+        }
       }
     }
   }
 }
-if (!settings || !data || data.schemaVersion !== 1) {
+// A phone whose token was taken away is not paired any more, and it says so
+// on every refresh — a widget that goes on showing the last numbers looks
+// healthy while the service has long stopped answering it.
+if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
   header(failure || "未连接"); widget.addSpacer(18);
-  text(widget, settings ? "暂时无法连接" : "先连接你的用量", 16, colors.text, "medium");
+  text(widget, settings && settings.pairingNeeded ? "需要重新配对" : (settings ? "暂时无法连接" : "先连接你的用量"), 16, colors.text, "medium");
   widget.addSpacer(8);
   // Without a cached reading there is nothing else to show, so the reason (a
   // token the service does not know, a service that answers with an error, a
@@ -378,10 +505,10 @@ if (!settings || !data || data.schemaVersion !== 1) {
     const title = fitName(card ? card.label : "暂无该套餐", 12, layout.width - 60);
     text(name, title.label, title.size, colors.text, "medium");
     name.addSpacer(4);
-    if (missing) {
+    if (missing || looksLikeToken) {
       // The note is shortened to the room that is left, so the name of the
       // card and the note never fight for the same line.
-      text(name, shortenName("没有找到 " + requested, 8, Math.max(60, layout.width * 0.42)), 8, colors.warning);
+      text(name, shortenName(looksLikeToken ? "参数里的是令牌：令牌不填在参数里" : "没有找到 " + requested, 8, Math.max(60, layout.width * 0.42)), 8, colors.warning);
     }
     else text(name, windowLabel(primary), 9, colors.muted);
     widget.addSpacer(3);
@@ -423,7 +550,8 @@ if (!settings || !data || data.schemaVersion !== 1) {
       const foot = widget.addStack();
       foot.size = new Size(layout.width, layout.footer);
       text(foot, "今日 " + compact(data.usage.today && data.usage.today.totalTokens) + " Token", 9, colors.muted);
-      foot.addSpacer(); text(foot, direction, 9, colors.muted);
+      foot.addSpacer();
+      text(foot, looksLikeToken ? "参数里的令牌已忽略" : direction, 9, looksLikeToken ? colors.warning : colors.muted);
     } else {
       const foot = widget.addStack(); foot.layoutVertically(); foot.size = new Size(layout.width, layout.footer);
       const totals = foot.addStack();
@@ -431,7 +559,7 @@ if (!settings || !data || data.schemaVersion !== 1) {
       totals.addSpacer();
       text(totals, "近七日 " + compact(data.usage.week && data.usage.week.totalTokens), 11, colors.muted);
       foot.addSpacer(4);
-      text(foot, direction + " · Token 含缓存", 8, colors.muted);
+      text(foot, looksLikeToken ? "参数里的令牌已忽略 · Token 含缓存" : direction + " · Token 含缓存", 8, looksLikeToken ? colors.warning : colors.muted);
     }
   }
 }

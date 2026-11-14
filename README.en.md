@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.1 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.2 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -14,7 +14,7 @@ The plugin page has two columns. The left one holds the scan-to-pair block (the 
 
 - The plugin page shows a QR code. Scan it with the camera of the iPhone, let Safari open the pairing page, download the widget script, open it with Scriptable and add the widget to the home screen.
 - The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown and today's tokens; the last seven days and the rankings by vendor live on the usage page the widget opens. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`) or back to what is left (`\|remaining`); with no parameter the widget follows the "widget" block of the plugin page.
-- The plugin page is in two columns: the QR code, the pairing address and the four steps "on the iPhone" on the left; on the right, and on a wide window in two columns of their own, the **state**, **data update** (how often it reads), **which subscriptions** (the cards the phone shows) and the **widget** (whether the widget shows what is left or what is used, and which card the small one shows); beside them **device management** (the phones that are paired, each one revoked on its own; a revoked row can be deleted), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at). On a computer with many network cards the three long lists — the network cards, the phones in the tailnet and the addresses the phone may use — are folded away.
+- The plugin page is in two columns: the QR code, the pairing address and the four steps "on the iPhone" on the left; on the right, and on a wide window in two columns of their own, the **state**, **data update** (how often it reads), **which subscriptions** (the cards the phone shows; **drag them by the dots on the left into another order**, and the phone and the widget follow it) and the **widget** (whether the widget shows what is left or what is used, and which card the small one shows); beside them **device management** (the phones that are paired, each one revoked on its own; a revoked row can be deleted), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at). On a computer with many network cards the three long lists — the network cards, the phones in the tailnet and the addresses the phone may use — are folded away.
 - Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
 - The service only reads the local API of Magpie. In the default mode (listening on this computer plus a Tailscale forward) the service opens on this computer only, the phone comes in through the forward of the tailnet, and the tokens stay in the directory of Magpie.
 
@@ -161,14 +161,14 @@ The page opens with the read-only token of the widget. The token travels in the 
 
 The token the page keeps is kept for thirty days. After that it is gone and the next visit has to scan the code again — and tapping the widget never asks for a token, because the widget puts it into the address itself every time. If Safari clears the stored data of the page, that is one more scan.
 
-There is a "disconnect" at the top of the page on the phone: it wipes the token this phone kept, and the next visit has to pair again (the other phones are not touched). Revoking or deleting that phone in the console of Magpie does the same thing — that token stops working at once.
+There is a "disconnect" at the top of the page on the phone: it wipes the token this phone kept and asks the service to take its row off the list on the computer (the row is really gone when the service answers; when it does not answer, the row is still there and you can delete it in the device management of the plugin page), and the next visit has to pair again (the other phones are not touched). Revoking that phone in the console of Magpie does the same thing — that token stops working at once, the row stays as a record and can be deleted with the "delete" button.
 
 ## Widget parameter
 
 | Size | Shows | Widget Parameter |
 |---|---|---|
 | Small | one quota, the reset countdown, today's tokens | `codex` (default), `minimax`, `glm`; one account is written `codex@<account>`; `\|used` shows what is used, `\|remaining` shows what is left |
-| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens; the weekly limit, when there is one, on the same line as the reset time (with 5–6 subscriptions in two rows only the 5-hour quota fits) | empty; `page=2` for the second page; `\|used` turns every card into what is used, `\|remaining` back into what is left |
+| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens; the reset time and the share of the week on two lines of their own (with 5–6 subscriptions in two rows only the 5-hour quota fits, and there is neither of those two lines) | empty; `page=2` for the second page; `\|used` turns every card into what is used, `\|remaining` back into what is left |
 | Large | up to 6 per page; two columns with the quota, the reset and the second window; today's and the last seven days | empty; `page=2` for the second page; `\|used` turns every card into what is used, `\|remaining` back into what is left |
 
 The account in a parameter is the account's name as it is right now. The console writes the parameters the widget understands next to every subscription, so one can be copied from there. When an account is renamed the parameter finds nothing, and the small widget is no longer empty: it shows the first card and writes "not found" next to it.
@@ -186,15 +186,15 @@ So "38% remaining" means: this window has 38% of the quota left. The countdown n
 
 It is not the same as the token count: the remaining quota is **how much the plan gave you and how much is left**; today's tokens and the last seven days are **how many requests you actually sent**. A plan without a limit has no quota line at all, only the token count.
 
-### When the widget writes "令牌无效，请重新设置"
+### When the widget writes "令牌无效，请重新配对"
 
 The three reasons are told apart now:
 
-- **令牌无效，请重新设置**: the token was revoked, or the device was deleted on the service. Look for that phone under "device management" in the console and pair again.
+- **令牌无效，请重新配对**: the token was revoked, or the device was deleted on the service. The widget wipes this token from the Keychain by itself, asks the service to take its row off the list on the computer (the row is really gone when the service answers), and goes back to the unpaired state — pair again by scanning the code. A 401 from a proxy in front of the service is not taken for a dead token: the widget says "服务返回 401" and keeps the token.
 - **服务没有回答** / **服务返回 N**: the network is gone, the service is busy or it answered with an error; the widget shows the last result it has.
 - **连不上服务**: it did not reach the service at all.
 
-The old version had only two messages: "令牌无效，请重新设置" for a token the service did not know, and "离线缓存" for everything else (a service that answered with an error, a service that was gone) — which looked like everything was fine while the service had long stopped answering.
+The old version had only two messages: "令牌无效，请重新设置" for a token the service did not know, and "离线缓存" for everything else (a service that answered with an error, a service that was gone) — which looked like everything was fine while the service had long stopped answering. An even older version had another trap: when the Keychain held a token the service no longer knew, the script skipped the "exchange the pairing code for a token" step every time, and pairing again or downloading the script again could not fix it — the Keychain had to be cleaned by hand first. Now the script **tries the exchange first** whenever it carries a fresh pairing code, and falls back to the token it has only when that fails; when the exchange works, the service is asked to take the row of the old token off the list (the row is really gone when the service answers). The new token is written down before the old row is cleaned up — the code works once, so a phone that is closed in between must not lose the token it just got.
 
 Every number says which way it is read: "remaining" or "used". The bar is the same ink in the light and in the dark (only the depth differs), so it is not read as a warning at night; only the number turns orange or red when the quota is nearly gone.
 

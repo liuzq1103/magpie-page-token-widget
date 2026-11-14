@@ -283,6 +283,173 @@ test('a revoked device can be taken off the list for good', async () => {
   assert.equal(stranger.status, 403);
 });
 
+test('a phone that is going away takes its row with it', async () => {
+  const file = path.join(dir, 'state.json');
+  const consoleToken = await consoleTokenOf(dir);
+  await waitForConsole(base, consoleToken);
+
+  // Two phones of their own, so the other devices of this file are not touched.
+  await post(base, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: consoleToken });
+  let paired = JSON.parse(await readFile(file, 'utf8'));
+  const first = await post(base, '/api/v1/session', { code: paired.pairing.code, name: '留下的 iPhone' });
+  const firstBody = await first.json();
+  await post(base, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: consoleToken });
+  paired = JSON.parse(await readFile(file, 'utf8'));
+  const second = await post(base, '/api/v1/session', { code: paired.pairing.code, name: '要走的 iPhone' });
+  const secondBody = await second.json();
+
+  // A phone that has been revoked cannot read any more, but it can still say
+  // goodbye: its token is the proof of which row is its own.
+  const revoked = await post(
+    base,
+    '/api/v1/console/device',
+    { id: secondBody.device.id, action: 'revoke' },
+    { [TOKEN_HEADER]: consoleToken }
+  );
+  assert.equal(revoked.status, 200);
+
+  const goodbye = await post(base, '/api/v1/device/forget', {}, {
+    Authorization: 'Bearer ' + secondBody.token,
+  });
+  assert.equal(goodbye.status, 200);
+  assert.equal((await goodbye.json()).forgotten, true);
+
+  // Its row is gone, the row of the other phone is not, and the reading of
+  // the other phone still works.
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.devices.find((device) => device.id === secondBody.device.id), undefined);
+  assert.ok(after.devices.find((device) => device.id === firstBody.device.id));
+  const reading = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + firstBody.token },
+  });
+  assert.equal(reading.status, 200);
+
+  // A token that says goodbye twice takes nobody with it, and a token that
+  // was never handed out takes nobody either.
+  const again = await post(base, '/api/v1/device/forget', {}, {
+    Authorization: 'Bearer ' + secondBody.token,
+  });
+  assert.equal((await again.json()).forgotten, false);
+  const stranger = await post(base, '/api/v1/device/forget', {}, {
+    Authorization: 'Bearer not-a-token-of-any-phone',
+  });
+  assert.equal((await stranger.json()).forgotten, false);
+  const stillThere = JSON.parse(await readFile(file, 'utf8'));
+  assert.ok(stillThere.devices.find((device) => device.id === firstBody.device.id));
+
+  // A phone that is still live may take its own row as well: that is a revoke
+  // said by the phone itself. Its reading dies with the row.
+  const leaving = await post(base, '/api/v1/device/forget', {}, {
+    Authorization: 'Bearer ' + firstBody.token,
+  });
+  assert.equal((await leaving.json()).forgotten, true);
+  const gone = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(gone.devices.find((device) => device.id === firstBody.device.id), undefined);
+  const deadReading = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + firstBody.token },
+  });
+  assert.equal(deadReading.status, 401);
+});
+
+test('the goodbye door is on the phone port, where the phone can reach it', async () => {
+  // The widget and the phone page only ever reach the phone port. The door
+  // that takes a row off the list has to be there, not only on the console.
+  const file = path.join(dir, 'state.json');
+  const consoleToken = await consoleTokenOf(dir);
+  await waitForConsole(base, consoleToken);
+  await post(base, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: consoleToken });
+  const paired = JSON.parse(await readFile(file, 'utf8'));
+  const session = await post(base, '/api/v1/session', { code: paired.pairing.code, name: '端口上的 iPhone' });
+  const body = await session.json();
+  const phone = `http://127.0.0.1:${service.phonePort}`;
+
+  const goodbye = await post(phone, '/api/v1/device/forget', {}, {
+    Authorization: 'Bearer ' + body.token,
+  });
+  assert.equal(goodbye.status, 200);
+  assert.equal((await goodbye.json()).forgotten, true);
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.devices.find((device) => device.id === body.device.id), undefined);
+
+  // The console port does not serve the phone side of the service.
+  const reading = await fetch(phone + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + body.token },
+  });
+  assert.equal(reading.status, 401);
+});
+
+test('leaning on the goodbye door is slowed down on its own', async () => {
+  // A stranger with made-up tokens finds no row and changes nothing, but the
+  // tries are counted in a bag of their own: after sixty of them the door
+  // answers 429 and stays shut for a while. An isolated service, so the bag of
+  // the other tests is not spent here.
+  const own = await tempDir();
+  const ownService = await start(own);
+  const ownBase = `http://127.0.0.1:${ownService.port}`;
+  try {
+    let answered = 0;
+    let refused = 0;
+    for (let i = 0; i < 80; i += 1) {
+      const response = await post(ownBase, '/api/v1/device/forget', {}, {
+        Authorization: 'Bearer ' + 'g'.repeat(40) + i,
+      });
+      if (response.status === 200) {
+        const body = await response.json();
+        assert.equal(body.forgotten, false);
+        answered += 1;
+      } else {
+        assert.equal(response.status, 429);
+        refused += 1;
+      }
+    }
+    assert.ok(answered >= 55, `the first tries go through (${answered})`);
+    assert.ok(refused >= 1, `the door shuts after the budget (${refused})`);
+  } finally {
+    await ownService.close();
+    await cleanup(own);
+  }
+});
+
+test('the goodbye door does not spend the bag of the pairing', async () => {
+  // The bag the whole service shares is there for people who guess codes.
+  // A phone that says goodbye guesses nothing, so it must not be able to fill
+  // that bag — and a bag that is already full must not keep a phone from
+  // leaving.
+  const own = await tempDir();
+  const ownService = await start(own);
+  const ownBase = `http://127.0.0.1:${ownService.port}`;
+  const phone = `http://127.0.0.1:${ownService.phonePort}`;
+  try {
+    const file = path.join(own, 'state.json');
+    const consoleToken = await consoleTokenOf(own);
+    await waitForConsole(ownBase, consoleToken);
+    await post(ownBase, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: consoleToken });
+    const paired = JSON.parse(await readFile(file, 'utf8'));
+    const session = await post(ownBase, '/api/v1/session', { code: paired.pairing.code, name: '要走的那台' });
+    const body = await session.json();
+
+    // The bag of the pairing is filled with wrong codes.
+    let locked = false;
+    for (let i = 0; i < 120; i += 1) {
+      const response = await post(ownBase, '/api/v1/session', { code: 'wrong-code-' + i, name: 'x' });
+      if (response.status === 429) { locked = true; break; }
+    }
+    assert.ok(locked, 'the door of the pairing is shut');
+
+    // The phone can still go.
+    const goodbye = await post(phone, '/api/v1/device/forget', {}, {
+      Authorization: 'Bearer ' + body.token,
+    });
+    assert.equal(goodbye.status, 200);
+    assert.equal((await goodbye.json()).forgotten, true);
+    const after = JSON.parse(await readFile(file, 'utf8'));
+    assert.equal(after.devices.find((device) => device.id === body.device.id), undefined);
+  } finally {
+    await ownService.close();
+    await cleanup(own);
+  }
+});
+
 test('the service starts again and the devices are still there', async () => {
   const file = path.join(dir, 'state.json');
   const before = JSON.parse(await readFile(file, 'utf8'));

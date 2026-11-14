@@ -341,13 +341,13 @@ import { pairingLeft, remainingText } from './timing.mjs';
       name.className = 'device-name';
       row.append(name);
       const meta = node('span', 'note');
-      // The row is one line, so the date is short and the rest gives way.
-      const shortTime = value => timeOf(value).replace(/^\d{4}\//, '');
+      // The row is one line, so the date is short: the year is the same for
+      // every row and the second is of no use to anybody.
+      const shortTime = value => timeOf(value).replace(/^\d{4}\//, '').replace(/:\d{2}$/, '');
       meta.textContent = [
-        `配对于 ${shortTime(device.createdAt)}`,
-        `最后访问 ${device.lastAccessAt ? shortTime(device.lastAccessAt) : '还没有'}`,
-        '独立令牌',
-        device.revokedAt ? `已撤销（${shortTime(device.revokedAt)}）` : '',
+        `配对 ${shortTime(device.createdAt)}`,
+        device.lastAccessAt ? `最后 ${shortTime(device.lastAccessAt)}` : '还没用过',
+        device.revokedAt ? `已撤销 ${shortTime(device.revokedAt)}` : '',
       ]
         .filter(Boolean)
         .join(' · ');
@@ -497,50 +497,61 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const chosen = new Set(state.display?.subscriptions || []);
     const all = chosen.has('*');
     const items = state.subscriptions || [];
-    for (const subscription of items) {
-      const family = subscription.provider || subscription.id;
-      const label = document.createElement('label');
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.value = subscription.id;
-      input.checked = all || chosen.has(family) || chosen.has(subscription.id);
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = subscription.label || subscription.id;
-      label.append(input, name);
-      // The small widget is told which card to show with a parameter. The
-      // names it understands are written here, so an old one (an account that
-      // was renamed) can be seen and replaced.
-      const names = [subscription.provider || subscription.id];
-      if (subscription.account) names.push(subscription.id);
-      const hint = document.createElement('span');
-      hint.className = 'tag param';
-      hint.textContent = '参数 ' + names.join(' / ');
-      label.append(hint);
-      list.append(label);
+    // Every account knows the vendor it belongs to. A vendor that is chosen
+    // as a whole stands at the place of its first account.
+    const familyOf = new Map(items.map(subscription => [subscription.id, subscription.provider || subscription.id]));
+    // The order the user has given is the order of the cards on the phone and
+    // in the widget, so the rows are drawn in that order and not in the order
+    // the gateway happens to list them.
+    const ordered = [];
+    const seen = new Set();
+    for (const entry of state.display?.subscriptions || []) {
+      for (const subscription of items) {
+        const id = subscription.id;
+        if (seen.has(id)) continue;
+        if (entry === familyOf.get(id) || entry === id) {
+          ordered.push(subscription);
+          seen.add(id);
+        }
+      }
     }
-    list.onchange = async () => {
+    for (const subscription of items) if (!seen.has(subscription.id)) ordered.push(subscription);
+    // The rows can be dragged into another order. The order is what the phone
+    // and the widget follow, so it is written back with the selection.
+    let dragging = null;
+    // The rows are read in the order they are on the page, so a dragged row
+    // is where it was put. A family whose accounts stand together and are all
+    // on is written down as the family; the rest is written down one account
+    // at a time, so a row dragged between two families does not jump back.
+    const collect = () => {
       const checked = new Set(
         [...list.querySelectorAll('input')]
           .filter((input) => input.checked)
           .map((input) => input.value)
       );
-      // A family names all of its accounts, a name with an account names that
-      // one. The list shows every account, and one of them is on when its
-      // family or its own name is chosen.
-      const families = new Map();
-      for (const subscription of items) {
-        const family = subscription.provider || subscription.id;
-        if (!families.has(family)) families.set(family, []);
-        families.get(family).push(subscription.id);
-      }
       const next = [];
-      for (const [family, ids] of families) {
-        const on = ids.filter((id) => checked.has(id));
-        if (!on.length) continue;
-        if (on.length === ids.length) next.push(family);
-        else next.push(...on);
+      let run = [];
+      const familyOfRow = id => familyOf.get(id) || id;
+      const flush = () => {
+        if (!run.length) return;
+        const family = familyOfRow(run[0]);
+        const together = run.every(id => familyOfRow(id) === family);
+        const accounts = items.filter(subscription => familyOfRow(subscription.id) === family);
+        const every = together && run.length === accounts.length && run.every(id => checked.has(id));
+        if (every) next.push(family);
+        else for (const id of run) if (checked.has(id)) next.push(id);
+        run = [];
+      };
+      for (const row of list.querySelectorAll('label')) {
+        const id = row.querySelector('input').value;
+        if (run.length && familyOfRow(run[0]) !== familyOfRow(id)) flush();
+        run.push(id);
       }
+      flush();
+      return next;
+    };
+    const save = async () => {
+      const next = collect();
       if (!next.length) {
         text('subNote', '至少要留一家订阅，中号和大号组件才有内容。');
         return;
@@ -552,9 +563,84 @@ import { pairingLeft, remainingText } from './timing.mjs';
         });
         state.display = result.display;
         text('subNote', '已经记下，手机上的组件下一次刷新就会跟着变。');
+        // The rows are drawn again, so what is on the page is the order that
+        // was really saved.
+        renderSubscriptions(state);
       } catch {
         text('subNote', '没有存上，请再试一次。');
       }
+    };
+    for (const subscription of ordered) {
+      const family = subscription.provider || subscription.id;
+      const label = document.createElement('label');
+      label.className = 'sub';
+      const grip = document.createElement('span');
+      grip.className = 'grip';
+      grip.textContent = '⠿';
+      grip.title = '拖着换顺序';
+      grip.draggable = true;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = subscription.id;
+      input.checked = all || chosen.has(family) || chosen.has(subscription.id);
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = subscription.label || subscription.id;
+      label.append(grip, input, name);
+      // The small widget is told which card to show with a parameter. The
+      // names it understands are written here, so an old one (an account that
+      // was renamed) can be seen and replaced.
+      const names = [subscription.provider || subscription.id];
+      if (subscription.account) names.push(subscription.id);
+      const hint = document.createElement('span');
+      hint.className = 'tag param';
+      hint.textContent = '参数 ' + names.join(' / ');
+      label.append(hint);
+      // The drag lives on the little handle, so the row itself stays a row:
+      // the checkbox keeps working and the text can still be picked. The
+      // handle must not press the checkbox either, so the default of the
+      // click is taken away.
+      grip.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      grip.addEventListener('dragstart', event => {
+        dragging = label;
+        label.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', '');
+        event.dataTransfer.setDragImage(label, 12, 12);
+      });
+      grip.addEventListener('dragend', () => {
+        dragging = null;
+        label.classList.remove('dragging');
+        for (const row of list.querySelectorAll('.over')) row.classList.remove('over');
+      });
+      label.addEventListener('dragover', event => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        label.classList.add('over');
+      });
+      label.addEventListener('dragleave', () => label.classList.remove('over'));
+      label.addEventListener('drop', event => {
+        event.preventDefault();
+        label.classList.remove('over');
+        if (!dragging || dragging === label) return;
+        const rows = [...list.querySelectorAll('label')];
+        const from = rows.indexOf(dragging);
+        const to = rows.indexOf(label);
+        if (from < 0 || to < 0) return;
+        // The dragged row goes where it was dropped: below the row it was
+        // dropped on, or above it.
+        if (to > from) label.after(dragging);
+        else label.before(dragging);
+        dragging = null;
+        void save();
+      });
+      list.append(label);
+    }
+    list.onchange = () => {
+      void save();
     };
   };
 

@@ -250,13 +250,44 @@ function auth(message = '') {
   $('auth-error').textContent = message;
   if (!$('auth').open) $('auth').showModal();
 }
+// A phone that is going away asks the service to take its row off the list of
+// the devices. The answer says whether the row is really gone.
+async function forget(dying) {
+  try {
+    const response = await fetch('/api/v1/device/forget', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + dying, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (!response.ok) return false;
+    const answer = await response.json();
+    return !!(answer && answer.forgotten);
+  } catch {
+    return false;
+  }
+}
 async function load() {
   if (!token) { auth(); return; }
   $('refresh').disabled = true;
   try {
     const response = await fetch('/api/v1/overview', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (response.status === 401) {
-      token = null; store.drop('usage-token'); auth('令牌无效，请重新输入。'); return;
+      // The service puts its name on every answer that refuses a token. A
+      // refusal without that name comes from something in front of the
+      // service, and the token of the phone may still be good — so it is
+      // kept, and only the truth is told.
+      if (response.headers.get('x-token-widget-service') === 'magpie-page-token-widget') {
+        // The service does not know this token. The phone says so, and its row
+        // on the PC goes with it — the same way a widget that reads a dead
+        // token cleans up after itself.
+        const dying = token;
+        token = null; store.drop('usage-token');
+        if (dying) void forget(dying);
+        auth('令牌无效，请重新输入。');
+      } else {
+        auth('服务返回 401：这个地址回的不是你的插件服务。令牌没有动。');
+      }
+      return;
     }
     if (!response.ok) throw new Error('Unavailable');
     const data = await response.json();
@@ -271,17 +302,40 @@ async function load() {
 $('auth-form').addEventListener('submit', event => {
   event.preventDefault(); token = $('token').value.trim(); remember(token); void load();
 });
-// 「断开」 puts the token away: the page forgets it, and the next visit asks
-// for it again.
+// 「断开」 puts the token away: the page forgets it, the row of this phone is
+// taken off the list of the devices, and the next visit asks for it again.
+// It asks once more before it does: the row on the PC goes with it, and that
+// is not always what the finger meant.
+let forgetArmed = 0;
 $('forget').addEventListener('click', () => {
+  if (Date.now() > forgetArmed) {
+    forgetArmed = Date.now() + 4000;
+    $('forget').textContent = '确定断开？';
+    setTimeout(() => { forgetArmed = 0; $('forget').textContent = '断开'; }, 4000);
+    return;
+  }
+  forgetArmed = 0; $('forget').textContent = '断开';
+  const dying = token;
   token = null; store.drop('usage-token');
   // The old numbers go with the token: they belong to the device that was
   // just disconnected.
   last = null; store.drop('usage-overview');
+  // The row on the PC goes as well, so a phone that is going away does not
+  // stay in the list. A token that has run out is enough for that.
+  const note = $('notice');
+  if (dying) {
+    void forget(dying).then(gone => {
+      note.hidden = false;
+      note.textContent = gone
+        ? '这台手机已经断开：令牌抹掉了，PC 名单上那一行也删掉了。下次打开这个页面会重新问你要。'
+        : '这台手机已经断开：令牌抹掉了。PC 名单上那一行还没删掉（服务没有答话），可以在控制台的设备管理里把它删掉。';
+    });
+  } else {
+    note.hidden = false;
+    note.textContent = '这台手机已经断开：令牌抹掉了。下次打开这个页面会重新问你要。';
+  }
   $('connection').textContent = '已断开';
-  $('notice').hidden = false;
-  $('notice').textContent = '这台手机上的令牌已经抹掉了。下次打开这个页面会重新问你要。';
-  auth('令牌已经抹掉了。');
+  auth('已经断开了。');
 });
 $('auth').addEventListener('cancel', event => event.preventDefault());
 $('refresh').addEventListener('click', () => void load());

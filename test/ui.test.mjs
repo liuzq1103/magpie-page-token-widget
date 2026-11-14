@@ -77,10 +77,13 @@ test('every piece of the page the script reaches for is on the page', async () =
 test('the parameter of the subscription sits on the right', async () => {
   const script = await read('ui/app.js');
   const css = await read('ui/style.css');
-  // The row is a grid: the name in the middle, the parameter of the small
-  // widget at the end.
-  assert.match(css, /\.checks label \{[^}]*display: grid;[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
-  assert.match(css, /\.checks \.param \{\s*justify-self: end;/);
+  // The row is a flex row: the name takes what is left, the parameter of the
+  // small widget is pushed to the right. Both texts give up width instead of
+  // pushing the row out of the card.
+  assert.match(css, /\.checks label \{[^}]*display: flex;/);
+  assert.match(css, /\.checks \.param \{[^}]*margin-left: auto;/);
+  assert.match(css, /\.checks \.param \{[^}]*text-overflow: ellipsis;/);
+  assert.match(css, /\.checks label \.name \{[^}]*min-width: 0/);
   assert.match(script, /hint\.className = 'tag param'/);
 });
 
@@ -224,12 +227,25 @@ test('a wide window uses the space on both sides', async () => {
   assert.match(css, /@media\s*\(min-width:\s*1180px\)/);
   // The two columns are wrapped, so the grid has two children and not six.
   assert.match(html, /class="col"/);
-  // A device is one line: the name, the note and the buttons share it, and
-  // the long note gives way instead of pushing the buttons off the row.
+  // A device is one line when there is room: the name, the note and the
+  // buttons share it, and the long note gives way instead of pushing the
+  // buttons off the row. When even that is not enough the buttons move to a
+  // line of their own — never out of the card.
   const device = css.slice(css.indexOf('.row.device'));
-  assert.match(device, /flex-wrap:\s*nowrap/);
+  assert.match(device, /flex-wrap:\s*wrap/);
+  assert.match(device, /flex:\s*1 1 0/);
   assert.match(device, /text-overflow:\s*ellipsis/);
   assert.match(device, /min-width:\s*0/);
+});
+
+test('a row that says a lot does not push the buttons off the card', async () => {
+  const css = await read('ui/style.css');
+  // The lists are grids. Without a track of its own, a row is as wide as the
+  // longest word in it, and the buttons end up outside the card.
+  assert.match(css, /\.checks \{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /\.list \{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /\.list \.row \{[^}]*min-width:\s*0/);
+  assert.match(css, /\.checks label \{[^}]*min-width:\s*0/);
 });
 
 test('the actions of a device still reach the service', async () => {
@@ -246,9 +262,77 @@ test('the widget script has the words for a wrong token and for a quiet network'
   // The service answers 401 and loadJSON() throws before the status can be
   // read, so the status is read where Scriptable keeps it.
   assert.match(widget, /req\.response/);
-  assert.match(widget, /令牌无效，请重新设置/);
+  assert.match(widget, /令牌无效，请重新配对/);
   // The installer had the same dead check: a wrong token showed a raw
   // Scriptable error instead of a sentence.
   assert.match(installer, /probe\.response/);
   assert.match(installer, /只读令牌无效。/);
+});
+
+test('the widget tries a new code before the token it keeps', async () => {
+  const widget = await read('scriptable/UsageWidget.js');
+  // A token the service does not know any more must not block the way back
+  // in: when the script carries a code that has not been used, the exchange
+  // comes first, and the old token is only used when it fails.
+  assert.match(widget, /\(!storedToken \|\| \(settings\.code \|\| ""\) !== PAIRED\.code\)/);
+  const exchange = widget.indexOf('"/api/v1/session"');
+  const overview = widget.indexOf('"/api/v1/overview"');
+  assert.ok(exchange >= 0 && overview >= 0 && exchange < overview);
+  // The old token is put away when a new one takes its place, and on a 401
+  // the phone is told to be paired again rather than set up again.
+  assert.match(widget, /forgetToken\(storedToken, PAIRED\.baseURL\)/);
+  assert.match(widget, /Keychain\.set\(SETTINGS_KEY, JSON\.stringify\(settings\)\);[\s\S]{0,80}await forgetToken\(dead, settings\.baseURL\)/);
+  assert.match(widget, /api\/v1\/device\/forget/);
+  // The new token is put away before the old row is cleaned up: a code that
+  // has been used cannot be used a second time, so the token must not be
+  // lost while the service is being asked to forget the old one.
+  const swap = widget.indexOf('if (exchanged) {');
+  const put = widget.indexOf('Keychain.set(SETTINGS_KEY, JSON.stringify(settings));', swap);
+  const forget = widget.indexOf('forgetToken(storedToken', swap);
+  assert.ok(swap >= 0 && put > swap, 'the new token is written down');
+  assert.ok(forget > put, 'and only then the old row is cleaned up');
+});
+
+test('a dragged row keeps the place it was dragged into', async () => {
+  const page = await read('ui/app.js');
+  // The rows are read in the order they stand on the page. Grouping them by
+  // vendor first would put a dragged row back where its vendor stands.
+  assert.doesNotMatch(page, /families\.set\(family/);
+  assert.match(page, /for \(const row of list\.querySelectorAll\('label'\)\)/);
+  // The handle must not press the checkbox of the row either.
+  assert.match(page, /grip\.addEventListener\('click',[\s\S]{0,160}preventDefault/);
+});
+
+test('the subscription rows can be dragged into another order', async () => {
+  const page = await read('ui/app.js');
+  const styles = await read('ui/style.css');
+  // The handle is on the row, the row goes where it is dropped, and the order
+  // is written back with the selection.
+  assert.match(page, /className = 'grip'/);
+  assert.match(page, /dragstart/);
+  assert.match(page, /label\.after\(dragging\)|label\.before\(dragging\)/);
+  assert.match(page, /api\/v1\/console\/options/);
+  // The rows are drawn in the order the user has given, not in the order the
+  // gateway happens to list them.
+  assert.match(page, /for \(const entry of state\.display\?\.subscriptions \|\| \[\]\)/);
+  assert.match(styles, /\.grip/);
+});
+
+test('the phone says goodbye to its row on the list', async () => {
+  const page = await read('mobile/app.js');
+  assert.match(page, /api\/v1\/device\/forget/);
+  assert.match(page, /PC 名单上那一行也删掉了/);
+});
+
+test('the cards of the medium widget keep their bars on one line', async () => {
+  const widget = await read('scriptable/UsageWidget.js');
+  // A card without an account keeps the line of the account empty (a space
+  // of its own, so the line keeps its height), so the bars of the cards sit
+  // on one line and can be read side by side.
+  assert.match(widget, /text\(column, " ", accountSize, colors\.muted\)/);
+  // The time of the reset and the share of the week each get a line of their
+  // own: together on one line they were cut short, and the time was the first
+  // thing to go.
+  assert.match(widget, /const first = \(sharedWindow \? "" : windowLabel\(primary\) \+ " · "\) \+ shortReset\(primary\)/);
+  assert.match(widget, /const weekly = windowLabel\(secondary\) \+ " " \+ percent\(secondary\)/);
 });

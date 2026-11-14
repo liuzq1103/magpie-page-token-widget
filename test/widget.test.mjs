@@ -106,22 +106,30 @@ const runWidget = async ({
   keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) },
   config = {},
   args = {},
+  paired = null,
+  cache = '',
 } = {}) => {
   const log = [];
   const calls = { setWidget: 0, complete: 0 };
+  // What the script keeps after itself: the exchanges of the keychain are the
+  // way back in when a token runs out.
+  const kept = [];
   const context = {
     console,
     Script: {
       setWidget: () => { calls.setWidget += 1; },
       complete: () => { calls.complete += 1; },
     },
-    Keychain: { get: (key) => keychain[key], set: () => {} },
+    Keychain: {
+      get: (key) => keychain[key],
+      set: (key, value) => { keychain[key] = value; kept.push([key, value]); },
+    },
     FileManager: {
       local: () => ({
         joinPath: (...parts) => parts.join('/'),
         documentsDirectory: () => '/tmp/documents',
-        fileExists: () => false,
-        readString: () => '',
+        fileExists: () => Boolean(cache),
+        readString: () => cache,
         writeString: () => {},
       }),
     },
@@ -144,26 +152,241 @@ const runWidget = async ({
     Device: { name: () => 'iPhone', model: () => 'iPhone', isUsingDarkAppearance: () => false },
   };
   vm.createContext(context);
-  await vm.runInContext(`(async () => {\n${source}\n})();`, context);
-  return { log, calls };
+  // A script that comes from the pairing page carries the address and a
+  // one-time code; the service writes them into this line.
+  const script = paired
+    ? source.replace('let PAIRED = null;', `let PAIRED = ${JSON.stringify(paired)};`)
+    : source;
+  await vm.runInContext(`(async () => {\n${script}\n})();`, context);
+  return { log, calls, kept };
 };
 
+// A request that fails. The response it leaves behind stands for the
+// service, so it carries the name the service puts on its refusals.
 const failing = (error, response = null) =>
   class {
     constructor() {
-      this.response = response;
+      this.response = response
+        ? { ...response, headers: { 'x-token-widget-service': 'magpie-page-token-widget', ...(response.headers || {}) } }
+        : null;
     }
     async loadJSON() {
       throw error;
     }
   };
 
+// A request that answers by the road it is asked for. What is asked, in what
+// order, and with which token is written down: the way back in after a dead
+// token is the exchange, and it has to come first.
+const listening = (answers = {}) => {
+  const asked = [];
+  const Request = class {
+    constructor(url) {
+      this.url = String(url);
+      this.headers = {};
+      this.method = 'GET';
+      this.body = '';
+      this.response = { statusCode: 200 };
+    }
+    async loadJSON() {
+      asked.push({ url: this.url, auth: this.headers.Authorization || '', body: this.body });
+      const key = Object.keys(answers).find((name) => this.url.endsWith(name));
+      const answer = answers[key];
+      if (answer === undefined) {
+        this.response = { statusCode: 404 };
+        throw new Error('The server returned status 404');
+      }
+      if (typeof answer === 'function') {
+        // A route that fails in its own way: a network that does not answer,
+        // a refusal that does not come from the service.
+        return answer(this);
+      }
+      if (typeof answer === 'number') {
+        // The refusal comes from the service itself, and it says so.
+        this.response = { statusCode: answer, headers: { 'x-token-widget-service': 'magpie-page-token-widget' } };
+        throw new Error('The server returned status ' + answer);
+      }
+      return answer;
+    }
+    async loadString() {
+      asked.push({ url: this.url, auth: this.headers.Authorization || '', body: this.body });
+      return '';
+    }
+  };
+  return { Request, asked };
+};
+
+test('a new code is exchanged before the token the phone already has', async () => {
+  const { Request, asked } = listening({
+    '/api/v1/session': { token: 'n'.repeat(40) },
+    '/api/v1/device/forget': { forgotten: true },
+    '/api/v1/overview': overview(),
+  });
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40), code: 'old-code' }) };
+  const run = await runWidget({
+    request: Request,
+    keychain,
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'fresh-code' },
+  });
+  // The exchange comes first, and the reading is asked for with the new token.
+  const session = asked.findIndex((call) => call.url.endsWith('/api/v1/session'));
+  const reading = asked.findIndex((call) => call.url.endsWith('/api/v1/overview'));
+  assert.ok(session >= 0, 'the code is exchanged');
+  assert.ok(reading > session, 'the reading comes after the exchange');
+  assert.match(asked[reading].auth, /Bearer n{40}/);
+  // The old token says goodbye: its row goes off the list.
+  const goodbye = asked.find((call) => call.url.endsWith('/api/v1/device/forget'));
+  assert.ok(goodbye, 'the old token is put away');
+  assert.match(goodbye.auth, /Bearer a{40}/);
+  // The new token is kept, with the code it came from, so the next run does
+  // not ask again.
+  assert.equal(run.kept.length, 1);
+  const saved = JSON.parse(run.kept[0][1]);
+  assert.equal(saved.token, 'n'.repeat(40));
+  assert.equal(saved.code, 'fresh-code');
+  assert.equal(run.calls.setWidget, 1);
+});
+
+test('a code that no longer works falls back to the token the phone has', async () => {
+  const { Request, asked } = listening({
+    '/api/v1/overview': overview(),
+  });
+  const run = await runWidget({
+    request: Request,
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-code-that-was-used' },
+  });
+  // The session is not among the answers: the code was used, so the exchange
+  // fails and the token that is there is used as it was.
+  const reading = asked.find((call) => call.url.endsWith('/api/v1/overview'));
+  assert.ok(reading);
+  assert.match(reading.auth, /Bearer a{40}/);
+  assert.equal(run.calls.setWidget, 1);
+});
+
+test('a code that has been used is not asked for again', async () => {
+  const { Request, asked } = listening({
+    '/api/v1/overview': overview(),
+  });
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40), code: 'the-same-code' }) };
+  await runWidget({
+    request: Request,
+    keychain,
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'the-same-code' },
+  });
+  assert.equal(asked.find((call) => call.url.endsWith('/api/v1/session')), undefined);
+});
+
+test('a code that only failed because the service did not answer is asked again', async () => {
+  // The service did not answer at all: that is not the code's fault, so the
+  // code stays fresh and is tried again the next time.
+  const { Request, asked } = listening({
+    '/api/v1/overview': overview(),
+    '/api/v1/session': () => { throw new Error('The request timed out.'); },
+  });
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const run = await runWidget({
+    request: Request,
+    keychain,
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-fresh-code' },
+  });
+  const saved = JSON.parse(run.kept[run.kept.length - 1][1]);
+  assert.equal(saved.code, '', 'the code is not spent by a timeout');
+  // The next refresh tries the code again.
+  await runWidget({
+    request: Request,
+    keychain: { [SETTINGS_KEY]: JSON.stringify(saved) },
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-fresh-code' },
+  });
+  assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 2, 'the code is asked again');
+});
+
+test('a code that is refused for good is not asked again', async () => {
+  const { Request, asked } = listening({
+    '/api/v1/overview': overview(),
+    '/api/v1/session': () => {
+      const error = new Error('The server returned status 400');
+      error.response = { statusCode: 400 };
+      throw error;
+    },
+  });
+  const run = await runWidget({
+    request: Request,
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-stale-code' },
+  });
+  const saved = JSON.parse(run.kept[run.kept.length - 1][1]);
+  assert.equal(saved.code, 'a-stale-code', 'the code is spent');
+  // The next refresh does not try it again.
+  await runWidget({
+    request: Request,
+    keychain: { [SETTINGS_KEY]: JSON.stringify(saved) },
+    paired: { baseURL: 'http://127.0.0.1:8790', code: 'a-stale-code' },
+  });
+  assert.equal(asked.filter((call) => call.url.endsWith('/api/v1/session')).length, 1, 'the code is not asked again');
+});
+
+test('a token the service does not know is wiped and the phone is told to pair again', async () => {
+  const { Request, asked } = listening({
+    '/api/v1/device/forget': { forgotten: true },
+    '/api/v1/overview': 401,
+  });
+  const run = await runWidget({ request: Request });
+  assert.ok(run.log.some((line) => line.includes('令牌无效，请重新配对')), run.log.join(' | '));
+  assert.equal(run.calls.setWidget, 1);
+  // The token is taken out of the keychain, and the row it belonged to goes
+  // off the list of the devices.
+  const saved = JSON.parse(run.kept[run.kept.length - 1][1]);
+  assert.equal(saved.token, '');
+  assert.equal(saved.pairingNeeded, true);
+  const goodbye = asked.find((call) => call.url.endsWith('/api/v1/device/forget'));
+  assert.match(goodbye.auth, /Bearer a{40}/);
+});
+
+test('the phone that has to pair again says so on every refresh', async () => {
+  // The first refresh hears the 401 and takes the token away. The next
+  // refresh has no token to ask with, but the phone is still not paired —
+  // and a widget that goes on showing the last numbers looks healthy while
+  // the service has long stopped answering it.
+  const { Request } = listening({
+    '/api/v1/device/forget': { forgotten: true },
+    '/api/v1/overview': 401,
+  });
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const first = await runWidget({ request: Request, keychain });
+  assert.ok(first.log.some((line) => line.includes('令牌无效，请重新配对')), first.log.join(' | '));
+
+  // The second run: the reading of the last time is still in the file.
+  const second = await runWidget({ request: Request, keychain, cache: JSON.stringify(overview()) });
+  assert.ok(second.log.some((line) => line.includes('令牌无效，请重新配对')), second.log.join(' | '));
+  assert.equal(second.calls.setWidget, 1);
+  // The numbers of the last time are not shown as if they were fresh.
+  assert.ok(!second.log.some((line) => line.includes('59%')), second.log.join(' | '));
+});
+
+test('a refusal that does not come from the service leaves the token alone', async () => {
+  // Something stands in front of the service and answers with its own 401.
+  // The token of the phone may still be good, so it is not thrown away.
+  const Request = class {
+    constructor() {
+      this.response = { statusCode: 401, headers: { 'www-authenticate': 'Basic realm="proxy"' } };
+    }
+    async loadJSON() {
+      throw new Error('The server returned status 401');
+    }
+  };
+  const keychain = { [SETTINGS_KEY]: JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }) };
+  const run = await runWidget({ request: Request, keychain });
+  assert.ok(run.log.some(line => line.includes('服务返回 401')), run.log.join(' | '));
+  // The token is still there.
+  assert.equal(JSON.parse(keychain[SETTINGS_KEY]).token, 'a'.repeat(40));
+  assert.equal(run.kept.length, 0, 'nothing is written to the keychain');
+});
+
 test('the widget tells a wrong token from a quiet network', async () => {
   const wrong = await runWidget({
     request: failing(new Error('The server returned status 401'), { statusCode: 401 }),
   });
   assert.equal(wrong.calls.setWidget, 1, 'the widget is set even when the service says no');
-  assert.ok(wrong.log.some(line => line.includes('令牌无效，请重新设置')), wrong.log.join(' | '));
+  assert.ok(wrong.log.some(line => line.includes('令牌无效，请重新配对')), wrong.log.join(' | '));
 
   const quiet = await runWidget({
     request: failing(new Error('The request timed out.')),
@@ -201,6 +424,148 @@ test('the widget shows the numbers of the plugin page', async () => {
   assert.ok(!remaining.log.some(line => line.includes('已用')), remaining.log.join(' | '));
 });
 
+// A world that measures. A line of text is as tall as its writing and a
+// little air above and below, and the bar is four points. The card of a
+// medium widget is measured here the way it is built, so a card that no
+// longer fits is caught here and not on a phone.
+const LEADING = 1.2;
+class MeasuredElement {
+  constructor() {
+    this.font = null;
+    this.imageSize = null;
+    this.textColor = null;
+    this.lineLimit = 1;
+    this.minimumScaleFactor = 1;
+  }
+  height() {
+    if (this.imageSize) return this.imageSize.height;
+    if (this.font && this.font.size) return this.font.size * LEADING;
+    return 0;
+  }
+}
+class MeasuredStack {
+  constructor() {
+    this.children = [];
+    this.vertical = false;
+    this.size = null;
+  }
+  layoutVertically() { this.vertical = true; }
+  layoutHorizontally() { this.vertical = false; }
+  topAlignContent() {}
+  centerAlignContent() {}
+  addStack() {
+    const stack = new MeasuredStack();
+    this.children.push(stack);
+    return stack;
+  }
+  addText() {
+    const element = new MeasuredElement();
+    this.children.push(element);
+    return element;
+  }
+  addImage() {
+    const element = new MeasuredElement();
+    this.children.push(element);
+    return element;
+  }
+  addSpacer(size) {
+    this.children.push({ height: () => Number(size) || 0 });
+  }
+  height() {
+    const heights = this.children.map(child => child.height());
+    if (!heights.length) return 0;
+    return this.vertical
+      ? heights.reduce((sum, value) => sum + value, 0)
+      : Math.max(...heights);
+  }
+}
+
+const runMeasured = async ({ family = 'medium', screen = [320, 568], data = overview() } = {}) => {
+  let created = null;
+  const context = {
+    console,
+    Script: { setWidget: () => {}, complete: () => {} },
+    Keychain: { get: () => JSON.stringify({ baseURL: 'http://127.0.0.1:8790', token: 'a'.repeat(40) }), set: () => {} },
+    FileManager: {
+      local: () => ({
+        joinPath: (...parts) => parts.join('/'),
+        documentsDirectory: () => '/tmp/documents',
+        fileExists: () => false,
+        readString: () => '',
+        writeString: () => {},
+      }),
+    },
+    Request: class {
+      constructor() { this.response = { statusCode: 200 }; }
+      async loadJSON() { return data; }
+    },
+    ListWidget: class extends MeasuredStack {
+      constructor() {
+        super();
+        created = this;
+        this.backgroundColor = null;
+      }
+      setPadding() {}
+    },
+    DrawContext: class {
+      size = null;
+      setFillColor() {}
+      fillRect() {}
+      getImage() { return { image: true }; }
+    },
+    Size: FakeSize,
+    Rect: FakeRect,
+    Color: FakeColor,
+    Font: { systemFont: size => ({ size }), mediumSystemFont: size => ({ size }) },
+    config: { widgetFamily: family, widgetParameter: '', runsInWidget: true },
+    args: { widgetParameter: '' },
+    Device: {
+      name: () => 'iPhone',
+      model: () => 'iPhone',
+      isUsingDarkAppearance: () => false,
+      screenSize: () => ({ width: screen[0], height: screen[1] }),
+    },
+  };
+  vm.createContext(context);
+  await vm.runInContext(`(async () => {\n${source}\n})();`, context);
+  return created;
+};
+
+// The points a medium card may use on the smallest medium widget.
+const smallestMedium = (height, vertical, header, footer) => height - vertical * 2 - header - footer;
+
+test('the card of the medium widget fits the smallest medium widget', async () => {
+  // 320x568 is the smallest phone that still carries a medium widget. The
+  // frame gives the body 84 points: 12 above and below, 20 for the head and
+  // 13 for the foot. The card has to live inside that.
+  const widget = await runMeasured({ screen: [320, 568] });
+  const body = widget.children.find(
+    child => child instanceof MeasuredStack && child.vertical && child.size && child.size.height,
+  );
+  assert.ok(body, 'the body of the widget is there');
+  assert.equal(body.size.height, 84);
+  const grid = body.children.find(child => child instanceof MeasuredStack);
+  assert.ok(grid, 'the cards are in the body');
+  assert.ok(
+    grid.height() <= body.size.height,
+    `the card is ${grid.height().toFixed(1)} points tall, the body is ${body.size.height}`,
+  );
+});
+
+test('the card of the medium widget fits a phone with room to spare', async () => {
+  const widget = await runMeasured({ screen: [430, 932] });
+  const body = widget.children.find(
+    child => child instanceof MeasuredStack && child.vertical && child.size && child.size.height,
+  );
+  assert.ok(body, 'the body of the widget is there');
+  const grid = body.children.find(child => child instanceof MeasuredStack);
+  assert.ok(grid, 'the cards are in the body');
+  assert.ok(
+    grid.height() <= body.size.height,
+    `the card is ${grid.height().toFixed(1)} points tall, the body is ${body.size.height}`,
+  );
+});
+
 test('the parameter of the phone still wins over the plugin page', async () => {
   const answering = class {
     constructor() { this.response = { statusCode: 200 }; }
@@ -209,4 +574,25 @@ test('the parameter of the phone still wins over the plugin page', async () => {
   const overridden = await runWidget({ request: answering, args: { widgetParameter: 'remaining' } });
   assert.ok(overridden.log.some(line => line.includes('剩余')), overridden.log.join(' | '));
   assert.ok(!overridden.log.some(line => line.includes('已用')), overridden.log.join(' | '));
+});
+
+test('a parameter that is a token says so instead of hunting for it', async () => {
+  const { Request } = listening({ '/api/v1/overview': overview() });
+  const run = await runWidget({
+    request: Request,
+    config: { widgetFamily: 'small' },
+    args: { widgetParameter: 'a'.repeat(40) },
+  });
+  // The token-shaped parameter is dropped, the first card is shown, and the
+  // note says what happened instead of "没有找到 aaaa…".
+  assert.ok(run.log.some((line) => line.includes('参数里的是令牌')), run.log.join(' | '));
+  assert.ok(!run.log.some((line) => line.includes('没有找到')), run.log.join(' | '));
+  assert.equal(run.calls.setWidget, 1);
+
+  // On the medium family the word of the footer becomes the warning.
+  const medium = await runWidget({
+    request: Request,
+    args: { widgetParameter: 'a'.repeat(40) },
+  });
+  assert.ok(medium.log.some((line) => line.includes('参数里的令牌已忽略')), medium.log.join(' | '));
 });
