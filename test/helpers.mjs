@@ -37,6 +37,10 @@ export const BAD_PORTS = new Set([
   5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
 ]);
 
+// A port is only good when something can talk to it. This is the one rule
+// the gateway of the tests has to obey.
+export const portIsUsable = (port) => !BAD_PORTS.has(port);
+
 export const freePort = async () => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const server = http.createServer();
@@ -59,7 +63,7 @@ export const readJSON = async (file) => JSON.parse(await (await import('node:fs/
 
 // A Magpie gateway of the tests. Every request is written down, so a test can
 // count how many times the service asked for something.
-export async function startGateway(routes = {}) {
+export async function startGateway(routes = {}, { firstPort = 0 } = {}) {
   const calls = [];
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
@@ -101,17 +105,32 @@ export async function startGateway(routes = {}) {
   });
   // The system picks the number when the port is 0. Sometimes it picks one
   // that the fetch refuses, and then the gateway is deaf. Give it back and
-  // ask for another one.
+  // ask for another one. A test can hand in a port of its own (firstPort) to
+  // watch the giving back happen for real.
+  const refused = [];
+  const wanted = firstPort ? [firstPort] : [];
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const asked = wanted.length ? wanted.shift() : 0;
+    const listened = await new Promise((resolve) => {
+      const onError = () => resolve({ error: true });
+      server.once('error', onError);
+      server.listen(asked, '127.0.0.1', () => {
+        server.removeListener('error', onError);
+        resolve({});
+      });
+    });
+    // The port is taken by somebody else; ask for another one.
+    if (listened.error) continue;
     const { port } = server.address();
-    if (BAD_PORTS.has(port)) {
+    if (!portIsUsable(port)) {
+      refused.push(port);
       await new Promise((resolve) => server.close(resolve));
       continue;
     }
     return {
       url: `http://127.0.0.1:${port}`,
       calls,
+      refused,
       close: () => new Promise((resolve) => {
         if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
         server.close(resolve);

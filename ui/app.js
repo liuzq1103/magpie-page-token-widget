@@ -351,8 +351,15 @@ import { pairingLeft, remainingText } from './timing.mjs';
             if (current) current.devices = result.devices;
             text('deviceNote', '已经删掉了。别的手机不受影响。');
             renderDevices(current || {});
-          } catch {
-            text('deviceNote', '没有删掉，请再试一次。');
+          } catch (error) {
+            // The server says why it refused; the page says it in the
+            // language of the page.
+            const reason = String(error?.message || '');
+            text('deviceNote', reason.includes('Revoke')
+              ? '这台手机还在用：先撤销它，再删。'
+              : reason.includes('Not found')
+                ? '这一行已经不在名单上了。'
+                : '没有删掉，请再试一次。');
           }
         });
         actions.append(remove);
