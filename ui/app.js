@@ -131,14 +131,28 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const note = element('externalNote');
     if (note) {
       const parts = [];
-      parts.push(external.url
-        ? `手机会用这个地址：${external.url}。`
-        : '留空就用 Tailscale 的地址。');
+      const mode = external.mode || 'tailscale';
+      if (mode === 'tailscale') {
+        parts.push('现在的连法：Tailscale。手机从尾网地址连进来。');
+      } else if (mode === 'https') {
+        parts.push(`现在的连法：自己的 HTTPS 地址 ${external.url}。数据是加密的，令牌也走在加密里。`);
+      } else if (mode === 'lan') {
+        parts.push(`现在的连法：自己的内网 ${external.url}。`);
+      } else {
+        parts.push(`现在的连法：自己的地址 ${external.url}。`);
+      }
+      if (external.url && mode !== 'tailscale') {
+        parts.push('留空就用 Tailscale 的地址。');
+      }
       if (external.listenAddress) {
         parts.push(`手机那一侧的端口已经在 ${external.listenAddress} 上打开。`);
       }
       if (external.error) parts.push(external.error);
-      parts.push('这条路上的数据是明文的 HTTP，令牌就走在里面；iPhone 会问你要「本地网络」的权限。');
+      if (external.listenError) parts.push(external.listenError);
+      if (mode !== 'https') {
+        parts.push('这条路上的数据是明文的 HTTP，令牌就走在里面；iPhone 会问你要「本地网络」的权限。');
+      }
+      parts.push('只有 HTTPS 地址可以随便写域名；明文 HTTP 只认内网地址、Tailscale 地址和本机回环地址。');
       note.textContent = parts.join(' ');
     }
     const list = element('bindList');
@@ -555,6 +569,26 @@ import { pairingLeft, remainingText } from './timing.mjs';
     }
   });
   element('saveExternal')?.addEventListener('click', () => { void saveOwnAddress(); });
+  element('restoreTailscale')?.addEventListener('click', async () => {
+    const button = element('restoreTailscale');
+    if (button) button.disabled = true;
+    text('restoreNote', '正在关掉自己开的端口，让 Tailscale 回来…');
+    try {
+      const result = await api('api/v1/console/network/reset', { method: 'POST', body: '{}' });
+      await load();
+      const mode = result?.network?.mode || 'tailscale';
+      text(
+        'restoreNote',
+        mode === 'tailscale'
+          ? '已经回到 Tailscale：自己填的地址和在内网上开的端口都关掉了，手机从尾网连进来。'
+          : '已经恢复了一部分，请看上面的连接方式。',
+      );
+    } catch (error) {
+      text('restoreNote', error.message || '没有恢复成功，请再试一次。');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
   element('diagnose')?.addEventListener('click', async () => {
     text('diagnoseNote', '正在问 Tailscale…');
     try {

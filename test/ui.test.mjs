@@ -72,3 +72,27 @@ test('the gateway is not edited in the console any more', async () => {
   assert.doesNotMatch(script, /JSON\.stringify\(\{ gatewayURL/);
   assert.doesNotMatch(script, /gatewayURL: /);
 });
+
+test('the way back to the tailnet is on the page', async () => {
+  const page = await read('ui/index.html');
+  const script = await read('ui/app.js');
+  // A button that puts the tailnet back, and it has to say what it does.
+  assert.match(page, /id="restoreTailscale"/);
+  assert.match(page, /恢复 Tailscale 默认连接/);
+  assert.match(page, /id="restoreNote"/);
+  // The button has to ask the service, not only change the page.
+  assert.match(script, /restoreTailscale/);
+  assert.match(script, /api\/v1\/console\/network\/reset/);
+  // And it has to tell the user how it went.
+  assert.match(script, /restoreNote/);
+});
+
+test('the phone page does not ask for a tailnet of its own', async () => {
+  const page = await read('mobile/index.html');
+  const installer = await read('scriptable/SetupUsageWidget.js');
+  // The address of the user may be a tailnet address, a home address or his
+  // own https name: none of them needs the sentence "keep Tailscale on".
+  assert.doesNotMatch(page, /保持 Tailscale 已连接/);
+  assert.doesNotMatch(installer, /先连接 Tailscale/);
+  assert.match(installer, /确保 iPhone 能访问你填写的服务地址/);
+});

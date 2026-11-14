@@ -87,6 +87,14 @@ export async function startGateway(routes = {}) {
       response.end('this is not json');
       return;
     }
+    // An answer with a status of its own, so that a test can say "this
+    // endpoint is not there" (404) or "not this way" (405) without a server
+    // of its own.
+    if (answer && typeof answer === 'object' && typeof answer.httpStatus === 'number') {
+      response.writeHead(answer.httpStatus, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(answer.body ?? { error: 'failed' }));
+      return;
+    }
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(answer));
   });
@@ -108,7 +116,7 @@ export function mockTailscale({ status = {}, ping = 'pong from 100.64.0.1:41641'
   const calls = [];
   // The shape of the real answer of "tailscale serve status --json".
   const serve = { TCP: {} };
-  const runner = async (args) => {
+  const answer = (args) => {
     const line = args.join(' ');
     calls.push(line);
     if (args[0] === 'status') {
@@ -133,7 +141,11 @@ export function mockTailscale({ status = {}, ping = 'pong from 100.64.0.1:41641'
     }
     return { ok: false, error: `unknown command: ${line}` };
   };
-  return { runner, calls, serve };
+  const runner = async (args) => answer(args);
+  // The same answers, but at once: the way out of a run cannot wait for a
+  // promise, so the tests need a runner that answers in one go.
+  const runnerSync = (args) => answer(args);
+  return { runner, runnerSync, calls, serve };
 }
 
 // The status that Tailscale answers with on this computer.

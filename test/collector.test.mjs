@@ -365,7 +365,7 @@ test('an older Magpie is still read', async () => {
       quotaRow('codex', 'beta@example.com'),
     ]),
     // The newer answer is not there.
-    '/v1/magpie/usage?period=today': 'broken',
+    '/v1/magpie/usage?period=today': { httpStatus: 404, body: { error: 'not found' } },
     '/v1/magpie/usage/requests?period=today&limit=1': {
       calls: 100,
       input: 1000,
@@ -484,6 +484,184 @@ test('the console of the computer counts as activity', async () => {
     assert.ok(collector.nextDelay() > 60_000);
     collector.noteActivity();
     assert.equal(collector.nextDelay(), 60_000);
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+// The difference between an answer that is not there and a moment of trouble.
+// Only the first one starts the old way of reading, which asks one answer
+// per account.
+
+const legacyTodayAnswer = {
+  calls: 100,
+  input: 1000,
+  output: 500,
+  cache_read: 2000,
+  cache_write: 0,
+  by: { provider: [{ id: 'codex', calls: 100, input: 1000, output: 500, cache_read: 0, cache_write: 0, errors: 0, reasoning: 0, cost: 0 }] },
+  series: [{ label: '00', time: '2026-11-13T00:00:00+08:00', calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0 }],
+};
+
+test('an answer that is not there (404) starts the old way', async () => {
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': { httpStatus: 404, body: { error: 'not found' } },
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=today&limit=1&account=alpha%40example.com': { calls: 40, input: 400, output: 200, cache_read: 0, cache_write: 0 },
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local);
+    await collector.refresh();
+    const overview = collector.overview();
+    assert.equal(overview.sources.today.state, 'ok');
+    assert.equal(overview.usage.today.requests, 100);
+    // The old way was used.
+    assert.equal(gateway.calls.some(call => call.includes('period=today&limit=1')), true);
+    // And the missing answer is not looked for again.
+    await collector.refresh();
+    assert.equal(gateway.calls.filter(call => call === '/v1/magpie/usage?period=today').length, 1);
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('an answer that is not allowed (405) starts the old way', async () => {
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': { httpStatus: 405, body: { error: 'method not allowed' } },
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local);
+    await collector.refresh();
+    assert.equal(collector.overview().sources.today.state, 'ok');
+    assert.equal(gateway.calls.some(call => call.includes('period=today&limit=1')), true);
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('a gateway with a moment of trouble does not start the old way', async () => {
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': 'broken',
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local);
+    await collector.refresh();
+    const overview = collector.overview();
+    // The day was not read, and it is not read the old way either.
+    assert.equal(overview.sources.today.state, 'unavailable');
+    assert.equal(gateway.calls.some(call => call.includes('account=')), false);
+    // The other parts are untouched by it.
+    assert.equal(overview.sources.week.state, 'ok');
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('a gateway that does not answer at all does not start the old way', async () => {
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': 'hang',
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local, { requestTimeoutMs: 400 });
+    await collector.refresh();
+    const overview = collector.overview();
+    assert.equal(overview.sources.today.state, 'unavailable');
+    assert.equal(gateway.calls.some(call => call.includes('account=')), false);
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('the numbers of the last good reading stay when the gateway has a moment of trouble', async () => {
+  let broken = false;
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': () => (broken ? 'broken' : todayAnswer),
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local);
+    await collector.refresh();
+    assert.equal(collector.overview().sources.today.state, 'ok');
+    broken = true;
+    await collector.refresh();
+    const overview = collector.overview();
+    // The numbers of the last good reading are still there, marked as old.
+    assert.equal(overview.sources.today.state, 'stale');
+    assert.equal(overview.usage.today.requests, 100);
+    // And the old way was not started.
+    assert.equal(gateway.calls.some(call => call.includes('account=')), false);
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('when the old way is gone as well the day is simply not read', async () => {
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': { httpStatus: 404, body: { error: 'not found' } },
+    '/v1/magpie/usage/requests?period=today&limit=1': { httpStatus: 404, body: { error: 'not found' } },
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local);
+    await collector.refresh();
+    const overview = collector.overview();
+    assert.equal(overview.sources.today.state, 'unavailable');
+    assert.equal(overview.sources.week.state, 'ok');
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
+test('a gateway that comes back is asked the newer answer again', async () => {
+  let missing = true;
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': () => (missing ? { httpStatus: 404, body: { error: 'not found' } } : todayAnswer),
+    '/v1/magpie/usage/requests?period=today&limit=1': legacyTodayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    let now = Date.now();
+    const collector = collectorFor(gateway, local, { clock: () => now });
+    await collector.refresh();
+    assert.equal(collector.overview().sources.today.state, 'ok');
+    // The gateway is changed under the feet of the service: the newer answer
+    // is there now. It is noticed after a while.
+    missing = false;
+    const legacyCalls = gateway.calls.filter(call => call.includes('period=today&limit=1')).length;
+    now += 11 * 60_000;
+    await collector.refresh();
+    assert.equal(gateway.calls.filter(call => call === '/v1/magpie/usage?period=today').length, 2);
+    assert.equal(gateway.calls.filter(call => call.includes('period=today&limit=1')).length, legacyCalls);
+    assert.equal(collector.overview().sources.today.state, 'ok');
   } finally {
     await gateway.close();
     await cleanup(local);

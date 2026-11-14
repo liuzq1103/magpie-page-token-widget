@@ -1,6 +1,6 @@
 {
   "name": "magpie-page-token-widget",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "An iPhone home screen widget for Magpie subscription quotas: install the plugin, scan a code, and the widget shows each subscription's remaining quota.",
   "type": "module",
   "main": "./index.mjs",
@@ -10,14 +10,17 @@
     "mobile",
     "page",
     "scriptable",
+    "scripts",
     "ui",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "LICENSE",
     "NOTICE"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs"
   },
   "engines": {
     "magpie": ">=0.1.3681",

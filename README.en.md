@@ -1,10 +1,10 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md)
+> English · [中文](README.md) · version 0.3.3 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
-Installing it needs no install script, no Node.js, no scheduled task and no Tailscale port forwarding. The plugin runs the service itself, finds the tailnet address itself, and the phone pairs by scanning a code once.
+Installing it needs no install script, no Node.js and no scheduled task, and you do not have to set up port forwarding yourself: in the default Tailscale mode the plugin runs the service itself and builds the forward in the tailnet itself, and the phone pairs by scanning a code once.
 
 > The numbers come from your own Magpie, and the script holds no key of its own. What the widget shows is still Magpie's own wording.
 
@@ -16,13 +16,15 @@ The plugin page looks like this: the scan-to-pair block on top, and below it the
 - The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown, today's tokens, the last seven days and the rankings by vendor. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
 - The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at).
 - Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
-- The service only reads the local API of Magpie, only opens on this computer, the phone comes in through the port forwarding of Tailscale, and the tokens stay in the directory of Magpie.
+- The service only reads the local API of Magpie. In the default mode (listening on this computer plus a Tailscale forward) the service opens on this computer only, the phone comes in through the forward of the tailnet, and the tokens stay in the directory of Magpie.
 
 ## Requirements
 
 - Magpie on the desktop (the plugin host is Bun).
-- Tailscale, with the computer and the iPhone in the same tailnet.
 - [Scriptable](https://scriptable.app/) on the iPhone.
+- Tailscale: **only the default mode needs it.** The computer and the iPhone are in the same tailnet, and the plugin finds the address and builds the forward by itself. With a server of your own or a trusted address inside your own network, Tailscale is no longer needed.
+
+The three ways to connect (the default Tailscale mode, an address of your own, a direct way over the LAN) are in "Three ways to connect" below.
 
 ## Install
 
@@ -50,7 +52,7 @@ The service keeps one budget for the whole of it: a hundred wrong tries in five 
 
 The script keeps the token in the keychain of Scriptable, and the three widgets of one iPhone share it.
 
-Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js`. The service address may be an address of your own network (for instance `http://192.168.1.50:8791`); only a plain HTTP address out in the public internet is refused.
+Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js` (make a new script in Scriptable and paste it in). The service address may be a Tailscale address (`http://100.x.x.x:8791`), an address inside your own network (`http://192.168.1.50:8791`), or an HTTPS domain of your own (`https://my-server`). **A plain HTTP address out in the public internet is refused**; the rules are in "Three ways to connect" below.
 
 ## Device management
 
@@ -79,7 +81,7 @@ The page shows whether Tailscale is installed and connected, the address of this
 
 - **Direct**: Tailscale talks to the phone itself, encrypted end to end; on one LAN it usually finds the other side on its own, and that is the fastest way.
 - **Peer relay**: there is no direct path, so another device of the tailnet carries the traffic.
-- **DERP**: Tailscale's own relay server carries the traffic; the slowest way, but it always works.
+- **DERP**: Tailscale's own relay server carries the traffic; the slowest way, and the last way out. None of the three is a promise that the connection works — DERP is a fallback, not a guarantee.
 
 When the way cannot be read, the page says so instead of guessing. The button "diagnose" pings the phone once and writes down the answer; the service never pings on its own.
 
@@ -89,21 +91,63 @@ The network cards of this computer are listed as well: name, IPv4, IPv6, the len
 
 If you want a road of your own, it is in the next part: you choose it, you write it down, and it is yours to look after. It never happens on its own.
 
-## A network of your own (when you do not want Tailscale)
+## Three ways to connect
 
-Not everybody wants Tailscale: there is a Headscale of your own (the official client pointed at your own server is enough — the plugin cannot tell the difference), a server of your own, or an address inside the network of your company. **You can write an address of your own in the "Network" part of the console** (`http://192.168.1.50:8791`; with a proxy of yours in front: `https://my-server/widget`). After that:
+These are three different things; do not read them as one. The "Network" part of the console always says which one is in use.
 
-- the phone is told that address when it pairs, and the widget and the page on the phone use it;
-- no Tailscale forwarding is built any more, and nothing of Tailscale is needed for this;
-- the phone side can also open a door on an address this computer really has (one click in the console), so that no proxy is needed at all and the phone goes over the LAN itself.
+### One, the default: Tailscale
+
+- This is what it looks like right after the install, and nothing has to be configured. The plugin finds the tailnet address of this computer, builds a forward in the tailnet itself (`tailscale serve --tcp`), and the phone comes in on the 100.x address.
+- The console stays on 127.0.0.1; only the phone side is in the tailnet. A request that arrives over the tailnet is never taken for a request of this computer, so the phone cannot read the console and cannot get the console token.
+- When another forwarding already owns that port, the plugin does not touch it and the console says that the forward was not built.
+- When the phone cannot be reached, look at three things: is the iPhone in this tailnet, is Tailscale logged in, and is there a direct path between the two.
+- The way the traffic goes is written down as the path of this computer: **direct** is the two machines talking to each other encrypted, on one LAN usually found on their own, the fastest way; **peer relay** borrows a third device of the tailnet; **DERP** is Tailscale's own relay server and the last way out, the slowest but the most robust. None of them is a promise that the connection works.
+
+### Two, an address of your own: your server, a reverse proxy or a Headscale of your own
+
+Write an address into the field of the "Network" part and the phone is told that address when it pairs; the widget and the page on the phone use it as well. After that the plugin builds no Tailscale forward, and nothing of Tailscale is needed for this any more.
+
+What may be written:
+
+| Address | Allowed | Why |
+|---|---|---|
+| `https://my-server` / `https://my-server.example.com` | yes | An HTTPS address may name any domain. The token and the numbers travel encrypted. |
+| `http://192.168.1.50:8791`, `http://10.0.0.7:8791`, `http://172.16.3.9:8791` | yes | The private ranges of RFC1918. |
+| `http://100.64.0.5:8791` | yes | The range of Tailscale (and of a Headscale of your own). |
+| `http://[fd00::1]:8791`, `http://[::1]:8791` | yes | IPv6 ULA and the loopback of this computer. |
+| `http://box.local:8791`, `http://myserver:8791` | yes | Names kept for a network of your own, or a single label that the resolver of this computer knows. |
+| `http://example.com`, `http://93.184.216.34:8791` | **no** | Plain HTTP out in the public internet: the token goes past everybody on the way. |
+
+The check on the server and the check in the installer of the phone are the same one, so the two never contradict each other.
+
+After the update to 0.3.3 the address that is written down is looked at again with these rules: a **plain HTTP address out in the public internet is not accepted any more**. The plugin takes it out of the settings, writes down why in the console, and goes back to the forward of the tailnet. Addresses of a private network, addresses of the tailnet and HTTPS addresses are not touched, and the phone that is already paired does not have to pair again.
+
+What a reverse proxy has to do:
+
+- **This version does not support an address with a path.** Use a domain of its own, map its **root** to the service of the plugin, and write `https://my-server`. Writing `https://my-server/widget` is refused outright, not half working.
+- The proxy has to point at the **phone-side port** (8791 by default), not at the port of the console (8790 by default): the console stays on this computer for good, and the proxy should only put the phone side out.
+- The proxy has to pass the original `Host` on (`proxy_set_header Host $host;`). The plugin recognises "this request is meant for me" by it, and a forged `Host` is refused.
+- The plugin does **not** believe `X-Forwarded-Proto`, `X-Forwarded-Host` and the like: anybody can write them. Whether the road is HTTPS or plain HTTP is decided by the address you wrote in the console, and by nothing else.
+- A proxy that ends the HTTPS itself and talks plain HTTP to the plugin is fine: the plugin judges by the address you wrote, not by the last leg.
 
 What to keep in mind:
 
-- the road is **plain HTTP**, and the token travels inside it. Unless you put HTTPS of your own in front, use it only on a network you trust yourself;
-- when the phone goes to an address of the LAN, the iPhone asks for the "local network" permission — allow it;
-- addresses move: when the router hands out a new one the phone cannot find the service any more, and you write the new address in the console;
-- the firewall: the phone comes in over the LAN, so the firewall of Windows may shut that door; the first time, let it through (the "private networks" of Windows are enough);
-- the way through Tailscale stays the default and the easiest. Tailscale steps aside only once you have written an address of your own.
+- On plain HTTP the token travels inside it. Unless the address is one of the trusted ones in the table above, use it only on a network you trust yourself.
+- When the phone goes to an address of the LAN, the iPhone asks for the "local network" permission — allow it.
+- Addresses move: when the router hands out a new one the phone cannot find the service any more, and you write the new address in the console.
+- The firewall: the phone comes in over the LAN, so the firewall of Windows may shut that door; the first time, let it through (the "private networks" of Windows are enough).
+
+### Three, a direct way over the LAN: the phone stays out of the tailnet
+
+Without Tailscale, on one LAN only: the phone side opens a door on an address of this computer and the phone comes in over the LAN.
+
+- Only the **phone side** opens a door; the console stays on this computer (127.0.0.1) for good, and the phone API carries no console.
+- Press "the phone comes in here" behind a network card in the "Network" part, or write the address yourself (`http://192.168.1.50:8791`) and pick one of the addresses of this computer; the plugin then opens the phone side on that address.
+- The iPhone asks for the "local network" permission — allow it; the firewall of Windows has to let the door through once.
+- The address of the LAN moves when the router hands out a new one, and then the phone cannot find the service; go back to the console and pick it again.
+- That road is plain HTTP, and the token travels inside it.
+
+**How to shut it down for good**: press **"restore the Tailscale default"** in the "Network" part. That action empties the address you wrote, empties the network settings that were written down, **really closes the door of the LAN** (it is not only a change of the settings), and builds the Tailscale forward again. The console then writes down which way is in use now.
 
 ## The page on the phone
 
@@ -127,6 +171,8 @@ Every number says which way it is read: "remaining" or "used". The bar is the sa
 
 The service runs as long as Magpie runs. With Magpie closed, the phone keeps the last result it received. That is the trade of being a plugin, and it is not the same as the old service that stayed alive as a scheduled task.
 
+When Magpie stops or reloads the plugin, the plugin runs through its own cleanup: it closes the doors it opened and takes away the forward it built. When the process is killed there is no time for that, see "Uninstall" below.
+
 ## Port
 
 The service listens on 8790 by default, the phone side on 8791. Pick another one when the port is taken:
@@ -135,13 +181,13 @@ The service listens on 8790 by default, the phone side on 8791. Pick another one
 magpie plugin options magpie-page-token-widget '{"port":8890}'
 ```
 
-Restart Magpie afterwards. The plugin publishes the port in the tailnet with a forwarding of Tailscale (`tailscale serve --tcp`), so the phone reaches it on the 100.x address. A forwarding of another service on that port is never touched.
+Restart Magpie afterwards. In the default (Tailscale) mode the plugin publishes the port in the tailnet with a forwarding of Tailscale (`tailscale serve --tcp`), so the phone reaches it on the 100.x address. A forwarding of another service on that port is never touched.
 
-The forwarding points at the phone side of the service (by default one port above the service port, so 8791), while the console stays on 127.0.0.1:8790. A request that comes in through the tailnet lands on that phone port and is never taken for a request of this computer, so the phone cannot read the console or the token.
+The forwarding points at the phone side of the service (by default one port above the service port, so 8791), while the console stays on 127.0.0.1:8790. A request that comes in through the tailnet lands on that phone port and is never taken for a request of this computer, so the phone cannot read the console or the token. Once you write an address of your own, that forward is not built any more.
 
-The plugin writes down the forwarding it made (the port and where it points) in its own file. After a restart it recognizes it and does not make it twice; a forwarding of an older version is moved to the phone side; the forwarding of somebody else is neither touched nor removed. It is taken away only when the plugin is uninstalled properly and the forwarding still points where it was written down.
+The plugin writes down the forwarding it made (the port and where it points) in its own file. After a restart it recognizes it and does not make it twice; a forwarding of an older version is moved to the phone side; the forwarding of somebody else is neither touched nor removed — the same port alone does not make it ours. It is taken away only when the plugin is stopped or uninstalled properly and the forwarding still points where it was written down.
 
-`tailscale serve --bg --tcp=8790` is a standing setting of Tailscale: it stays there when the plugin is removed or crashes. `tailscale serve status` shows what is published right now.
+`tailscale serve --bg --tcp=8790` is a standing setting of Tailscale: when the process is killed (a crash, a power cut) it stays there and does not go away by itself. The plugin finds it again on the next start, sees that it still points at itself, and goes on using it; to take it away by hand, run `tailscale serve --tcp=8790 off`, and `tailscale serve status` shows what is left.
 
 The port and the gateway are both given to the plugin when Magpie starts it: the port is the address the plugin listens on, the gateway is the Magpie the plugin reads from. The plugin cannot move itself, so they stay startup parameters of Magpie. To change either of them, change the plugin settings of Magpie:
 
@@ -149,13 +195,13 @@ The port and the gateway are both given to the plugin when Magpie starts it: the
 
 Then restart Magpie. The address the phone uses carries the port, so a new port means the phone has to be paired again.
 
-The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. The **Advanced settings** of the console show where it reads from (that is all; they do not change it). A different gateway belongs in the plugin settings of Magpie: it only counts after Magpie has been restarted, and half-changing it in the console only leads to confusion.
+The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. **That gateway has to point at this computer** (`127.0.0.1`, `::1` or `localhost`): the plugin reads the Magpie of this computer only, and another address is refused outright (the console writes down why) instead of sending your requests to that other machine. The **Advanced settings** of the console show where it reads from (that is all; they do not change it). A different gateway belongs in the plugin settings of Magpie: it only counts after Magpie has been restarted, and half-changing it in the console only leads to confusion.
 
 ## Compatibility
 
 - Magpie `0.1.3681` or later is needed (`package.json` says so).
 - The quota is read from the report Magpie has already cached (`/v1/magpie/quotas?kept=1`); the vendors are not asked again.
-- Today's tokens come from one request to `/v1/magpie/usage?period=today`, which holds the totals, the hours, the vendors and the accounts. **When an older Magpie does not know that endpoint, the old way is used instead** (`/v1/magpie/usage/requests?period=today` plus one request per account) and the widget keeps its numbers.
+- Today's tokens come from one request to `/v1/magpie/usage?period=today`, which holds the totals, the hours, the vendors and the accounts. **When an older Magpie does not know that endpoint, the old way is used instead** (`/v1/magpie/usage/requests?period=today` plus one request per account) and the widget keeps its numbers. The old way is only used when the gateway says clearly that the endpoint is not there (404, 405, 501); a moment of trouble (500, a timeout, a broken connection) does not start a request per account, it keeps the numbers of the last good reading and marks them as old. "This endpoint is not there" is remembered for a while, so it is not asked again at every refresh.
 - The trend of the last seven days and the rankings by model and vendor come from `/v1/magpie/usage/requests?period=7d&limit=1`: this is the only endpoint that carries the groups `by.model` and `by.agent`, and another endpoint would lose the rankings and the trend, so it stays.
 - Magpie does not know the period `week` (it is taken for 30 days); seven days is `7d`.
 
@@ -165,14 +211,18 @@ The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. The
 magpie plugin rm magpie-page-token-widget
 ```
 
-The forwarding of the plugin is taken away with it.
+When the plugin is stopped or removed, it closes the doors it opened and takes away the forward it built (only the one it wrote down). One thing it cannot do: when the process is killed (a crash, a power cut), there is no time for that, and the forward stays in Tailscale. It has to be taken away by hand:
+
+```bash
+tailscale serve --tcp=8790 off
+```
 
 ## Privacy
 
-- The service only reads the local API of Magpie (`127.0.0.1:3425`). It does not write the configuration of Magpie and does not touch the logins.
+- The service only reads the local API of Magpie (`127.0.0.1:3425` by default, this computer only). It does not write the configuration of Magpie and does not touch the logins.
 - The tokens are random, read only and stay in the directory of Magpie; the service keeps only their hashes. There is no shared token: one token per phone, and revoking one stops that phone alone. Only the plugin page of this computer and the phone that carries a pairing code can get one.
 - The addresses of the LAN are only shown in the console of the computer; the phone API does not have them.
-- By default the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), the firewall has to let it through once, and that road is plain HTTP.
+- In the default (Tailscale) mode the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), the firewall has to let it through once, and that road is plain HTTP.
 
 ## Development
 
