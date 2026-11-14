@@ -395,6 +395,35 @@ test('the origin of the proxy is answered with the origin itself', async () => {
   });
 });
 
+test('the window of Magpie may read the scripts of the service', async () => {
+  await withService(async ({ service, token }) => {
+    // The window of Magpie shows the console inside a sandboxed frame. Such a
+    // frame has no origin of its own; the browser calls it "null". A module
+    // script is always fetched in CORS mode, so the scripts and the styles of
+    // the console have to say that they may be read.
+    for (const route of ['/app.js', '/timing.mjs', '/style.css']) {
+      const answer = await rawGet('127.0.0.1', service.port, route, { Origin: 'null' });
+      assert.equal(answer.status, 200, route);
+      assert.equal(answer.headers['access-control-allow-origin'], 'null', route);
+    }
+    // The page that carries the token is not handed to anybody else: a site
+    // on the internet must not be able to read the console of this computer.
+    const page = await rawGet('127.0.0.1', service.port, '/', { Origin: 'null' });
+    assert.equal(page.status, 200);
+    assert.equal(page.headers['access-control-allow-origin'], undefined);
+    // The answers of the console are read by that window as well.
+    const state = await rawGet('127.0.0.1', service.port, '/api/v1/console/state', {
+      Origin: 'null',
+      [TOKEN_HEADER]: token,
+    });
+    assert.equal(state.status, 200);
+    assert.equal(state.headers['access-control-allow-origin'], 'null');
+    // Another site is still turned away at the door.
+    const foreign = await rawGet('127.0.0.1', service.port, '/app.js', { Origin: 'https://another.example' });
+    assert.equal(foreign.status, 403);
+  });
+});
+
 test('the gateway of Magpie has to be on this computer', async () => {
   await withService(async ({ base, token }) => {
     const state = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();

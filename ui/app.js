@@ -495,7 +495,12 @@ import { pairingLeft, remainingText } from './timing.mjs';
   // A pairing code that has run out is of no use to anybody. A new one is
   // made at once, so the first pairing after the install needs no extra click.
   const renewPairing = async () => {
-    if (!current) return false;
+    // The page never came up: ask the service again instead of waiting for
+    // the next tick. The service may only have been busy for a moment.
+    if (!current) {
+      await load();
+      return false;
+    }
     if (pairingLeft(current) > 0) {
       // The note counts down on the page itself.
       renderPairing(current);
@@ -514,12 +519,28 @@ import { pairingLeft, remainingText } from './timing.mjs';
     }
   };
 
+  // The page opens itself. When the service is not ready yet, or when the
+  // window lost it for a moment, the page tries again by itself: a person
+  // should not have to close the window and open it again.
+  let retryTimer = 0;
+  let retryDelay = 3000;
   const load = async () => {
     try {
       render(await api('api/v1/console/state'));
       await renewPairing();
-    } catch {
-      text('pairNote', '这个页面没有连上本机的额度服务，关掉插件页面再打开一次。');
+      clearTimeout(retryTimer);
+      retryTimer = 0;
+      retryDelay = 3000;
+      element('reconnect')?.setAttribute('hidden', '');
+    } catch (error) {
+      const reason = error?.message ? `（${error.message}）` : '';
+      text('pairNote', `这个页面没有连上本机的额度服务${reason}，过一会儿会自己再试。`);
+      element('reconnect')?.removeAttribute('hidden');
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { void load(); }, retryDelay);
+      // The first tries are close together, later ones are further apart: a
+      // service that is gone for good is not asked every second.
+      retryDelay = Math.min(retryDelay * 2, 15000);
     }
   };
 
@@ -544,6 +565,11 @@ import { pairingLeft, remainingText } from './timing.mjs';
   });
 
   element('copyLink')?.addEventListener('click', () => copy(current?.pairingURL, '配对链接'));
+  element('reconnect')?.addEventListener('click', () => {
+    clearTimeout(retryTimer);
+    retryDelay = 3000;
+    void load();
+  });
   element('manualToken')?.addEventListener('click', async () => {
     const name = element('manualName')?.value?.trim() || '';
     try {
