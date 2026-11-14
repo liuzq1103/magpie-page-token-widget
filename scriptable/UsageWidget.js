@@ -94,13 +94,27 @@ if (settings && settings.baseURL && settings.token) {
     req.headers = { Authorization: "Bearer " + settings.token };
     req.timeoutInterval = 10;
     const fresh = await req.loadJSON();
-    if (req.response && req.response.statusCode === 401) throw new Error("令牌无效");
     if (fresh.schemaVersion !== 1) throw new Error("数据格式不兼容");
     data = fresh;
     try { fm.writeString(cachePath, JSON.stringify(data)); } catch {}
   } catch (error) {
     cached = true;
-    failure = String(error.message).includes("令牌") ? "令牌无效，请重新设置" : "离线缓存";
+    // The reason is told apart: a token the service does not know, a service
+    // that answers with an error, a service that does not answer at all. One
+    // "离线缓存" for all three told the user nothing.
+    const reason = String((error && error.message) || "");
+    // Scriptable does not always hang the response on the error, so the
+    // status is read from the request (the documented place), from the error
+    // (when it is there) and from the message ("The server returned status 401").
+    const said = /status\s*(\d{3})/i.exec(reason);
+    const status = (req.response && Number(req.response.statusCode))
+      || (error && error.response && Number(error.response.statusCode))
+      || (said ? Number(said[1]) : 0);
+    failure = status === 401 || reason.includes("令牌")
+      ? "令牌无效，请重新设置"
+      : status ? "服务返回 " + status
+      : /timeout|超时/i.test(reason) ? "服务没有回答"
+      : "连不上服务";
   }
   widget.url = settings.baseURL + "/#token=" + encodeURIComponent(settings.token);
 }
@@ -222,10 +236,16 @@ function header(status) {
 // The case of an account is kept: two accounts of one vendor may differ in
 // nothing but their case.
 const parameter = String(args.widgetParameter || "").split("|").map(part => part.trim()).filter(Boolean);
-const showUsed = parameter.some(part => part.toLowerCase() === "used");
 const pageParts = parameter.filter(part => /^page=/i.test(part));
-const selectors = parameter.filter(part => part.toLowerCase() !== "used" && !/^page=/i.test(part));
-const requested = selectors[0] || "codex";
+const selectors = parameter.filter(part => part.toLowerCase() !== "used" && part.toLowerCase() !== "remaining" && !/^page=/i.test(part));
+// The plugin side says what the widget shows: the direction of the numbers
+// and the card of the small family. The parameter may still say otherwise,
+// so one widget can differ from the others.
+const plugin = data && data.display ? data.display : {};
+const wantsUsed = parameter.some(part => part.toLowerCase() === "used");
+const wantsRemaining = parameter.some(part => part.toLowerCase() === "remaining");
+const showUsed = wantsUsed || (!wantsRemaining && plugin.widgetMode === "used");
+const requested = selectors[0] || plugin.widgetCard || "codex";
 const emptyWindow = { label: "Quota", remainingPercent: null, usedPercent: null, resetsAt: null };
 function subscriptionGrid(parent, cards, sharedWindow) {
   const large = family === "large";

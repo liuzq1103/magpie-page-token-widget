@@ -49,6 +49,14 @@ after(async () => {
 const consoleToken = async () =>
   JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8')).consoleToken;
 
+// A phone asks the service for its own token with the pairing code.
+const pairDevice = async () => {
+  const state = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'));
+  const answer = await post(base, '/api/v1/session', { code: state.pairing.code, name: 'test phone' });
+  assert.equal(answer.status, 200);
+  return (await answer.json()).token;
+};
+
 const waitForConsole = async () => {
   const token = await consoleToken();
   for (let attempt = 0; attempt < 300; attempt += 1) {
@@ -112,6 +120,29 @@ test('the choice of the subscriptions is checked', async () => {
   assert.deepEqual((await good.json()).display.subscriptions, ['codex']);
 });
 
+test('the look of the widget is chosen on the plugin side', async () => {
+  const token = await consoleToken();
+  // The direction of the numbers.
+  const used = await post(base, '/api/v1/console/options', { widgetMode: 'used' }, { [TOKEN_HEADER]: token });
+  assert.equal(used.status, 200);
+  assert.equal((await used.json()).display.widgetMode, 'used');
+  // A word that is not a direction is not a direction.
+  const wrong = await post(base, '/api/v1/console/options', { widgetMode: 'sideways' }, { [TOKEN_HEADER]: token });
+  assert.equal((await wrong.json()).display.widgetMode, 'remaining');
+  // The card of the small widget.
+  const card = await post(base, '/api/v1/console/options', { widgetCard: 'Codex@Alice' }, { [TOKEN_HEADER]: token });
+  assert.equal((await card.json()).display.widgetCard, 'codex@Alice');
+  // A name that is not a name is not a card.
+  const bad = await post(base, '/api/v1/console/options', { widgetCard: '<script>' }, { [TOKEN_HEADER]: token });
+  assert.equal((await bad.json()).display.widgetCard, '');
+  // The phone reads the choice as well.
+  const overview = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + (await pairDevice()) },
+  });
+  assert.equal(overview.status, 200);
+  assert.equal((await overview.json()).display.widgetMode, 'remaining');
+});
+
 test('the choices survive a restart of the service', async () => {
   await service.close();
   service = await start(dir);
@@ -120,6 +151,17 @@ test('the choices survive a restart of the service', async () => {
   const state = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
   assert.deepEqual(state.display.subscriptions, ['codex']);
   assert.equal(state.refresh.strategy, '5m');
+  // The look of the widget is a choice too, and it survives the restart.
+  assert.equal(state.display.widgetMode, 'remaining');
+  assert.equal(state.display.widgetCard, '');
+  await post(base, '/api/v1/console/options', { widgetMode: 'used', widgetCard: 'codex@Alice' }, { [TOKEN_HEADER]: token });
+  await service.close();
+  service = await start(dir);
+  base = `http://127.0.0.1:${service.port}`;
+  const again = await waitForConsole();
+  const after = await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: again } })).json();
+  assert.equal(after.display.widgetMode, 'used');
+  assert.equal(after.display.widgetCard, 'codex@Alice');
 });
 
 test('the diagnosis does not change the network of this computer', async () => {

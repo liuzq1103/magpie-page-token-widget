@@ -1,11 +1,30 @@
 const $ = id => document.getElementById(id);
-const savedTheme = sessionStorage.getItem('usage-theme');
+// The token stays on this phone. Safari forgets a session when the tab is
+// closed, and the page is opened from the widget days later — asking for the
+// token every time was the wrong kind of careful. localStorage keeps it
+// until 「断开」 is pressed; a browser that refuses it falls back to the
+// session, which is the old behaviour.
+const store = {
+  get(key) {
+    try { return localStorage.getItem(key); } catch { /* A browser that refuses it. */ }
+    try { return sessionStorage.getItem(key); } catch { return null; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); return; } catch { /* A browser that refuses it. */ }
+    try { sessionStorage.setItem(key, value); } catch { /* Nothing to do. */ }
+  },
+  drop(key) {
+    try { localStorage.removeItem(key); } catch { /* Nothing to do. */ }
+    try { sessionStorage.removeItem(key); } catch { /* Nothing to do. */ }
+  },
+};
+const savedTheme = store.get('usage-theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 $('theme').addEventListener('click', () => {
   const dark = document.documentElement.dataset.theme === 'dark' || !document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches;
   const theme = dark ? 'light' : 'dark';
   document.documentElement.dataset.theme = theme;
-  sessionStorage.setItem('usage-theme', theme);
+  store.set('usage-theme', theme);
 });
 const compact = value => value == null ? '—' : new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
 const exact = value => new Intl.NumberFormat('en').format(value);
@@ -19,15 +38,28 @@ const node = (tag, className, text) => {
 };
 let token = new URLSearchParams(location.hash.slice(1)).get('token');
 history.replaceState(null, '', location.pathname);
-if (token) sessionStorage.setItem('usage-token', token);
-token ||= sessionStorage.getItem('usage-token');
+// The token is remembered for a while, not forever: it is a long-lived
+// credential and every script on that address can read the storage. Thirty
+// days is long enough for a daily look and short enough to be forgotten.
+// Tapping the widget brings the token again anyway.
+const REMEMBER_MS = 30 * 24 * 60 * 60 * 1000;
+const remember = value => store.set('usage-token', JSON.stringify({ token: value, at: Date.now() }));
+const recall = () => {
+  try {
+    const saved = JSON.parse(store.get('usage-token'));
+    if (saved && typeof saved.token === 'string' && Date.now() - Number(saved.at || 0) < REMEMBER_MS) return saved.token;
+  } catch { /* Nothing stored, or something that is not ours. */ }
+  return null;
+};
+if (token) remember(token);
+token ||= recall();
 let last;
-try { last = JSON.parse(sessionStorage.getItem('usage-overview')); } catch { /* No cached response. */ }
+try { last = JSON.parse(store.get('usage-overview')); } catch { /* No cached response. */ }
 // Percent direction and ranking tab are per-device viewing choices,
 // not changes to what the service projects.
-let quotaMode = sessionStorage.getItem('usage-quota-mode') === 'used' ? 'used' : 'remaining';
+let quotaMode = store.get('usage-quota-mode') === 'used' ? 'used' : 'remaining';
 const RANKING_TABS = ['models', 'providers', 'agents', 'computers'];
-let rankTab = RANKING_TABS.includes(sessionStorage.getItem('usage-ranking')) ? sessionStorage.getItem('usage-ranking') : 'models';
+let rankTab = RANKING_TABS.includes(store.get('usage-ranking')) ? store.get('usage-ranking') : 'models';
 function syncQuotaToggle() {
   for (const mode of ['remaining', 'used']) {
     const button = $('mode-' + mode);
@@ -44,13 +76,13 @@ function syncRankTabs() {
 }
 for (const mode of ['remaining', 'used']) $('mode-' + mode).addEventListener('click', () => {
   quotaMode = mode;
-  sessionStorage.setItem('usage-quota-mode', mode);
+  store.set('usage-quota-mode', mode);
   syncQuotaToggle();
   if (last) renderQuotas(last.subscriptions);
 });
 for (const id of RANKING_TABS) $('tab-' + id).addEventListener('click', () => {
   rankTab = id;
-  sessionStorage.setItem('usage-ranking', id);
+  store.set('usage-ranking', id);
   syncRankTabs();
   if (last) renderRankings(last);
 });
@@ -219,12 +251,12 @@ async function load() {
   try {
     const response = await fetch('/api/v1/overview', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
     if (response.status === 401) {
-      token = null; sessionStorage.removeItem('usage-token'); auth('令牌无效，请重新输入。'); return;
+      token = null; store.drop('usage-token'); auth('令牌无效，请重新输入。'); return;
     }
     if (!response.ok) throw new Error('Unavailable');
     const data = await response.json();
     if (data.schemaVersion !== 1) throw new Error('Unsupported response');
-    last = data; sessionStorage.setItem('usage-overview', JSON.stringify(data));
+    last = data; store.set('usage-overview', JSON.stringify(data));
     $('auth').close(); render(data);
   } catch {
     if (last) render(last, true);
@@ -232,7 +264,16 @@ async function load() {
   } finally { $('refresh').disabled = false; }
 }
 $('auth-form').addEventListener('submit', event => {
-  event.preventDefault(); token = $('token').value.trim(); sessionStorage.setItem('usage-token', token); void load();
+  event.preventDefault(); token = $('token').value.trim(); remember(token); void load();
+});
+// 「断开」 puts the token away: the page forgets it, and the next visit asks
+// for it again.
+$('forget').addEventListener('click', () => {
+  token = null; store.drop('usage-token');
+  $('connection').textContent = '已断开';
+  $('notice').hidden = false;
+  $('notice').textContent = '这台手机上的令牌已经抹掉了。下次打开这个页面会重新问你要。';
+  auth('令牌已经抹掉了。');
 });
 $('auth').addEventListener('cancel', event => event.preventDefault());
 $('refresh').addEventListener('click', () => void load());

@@ -49,8 +49,41 @@ import { pairingLeft, remainingText } from './timing.mjs';
       await navigator.clipboard.writeText(value);
       text('pairNote', `${label}已经复制到剪贴板。`);
     } catch {
-      text('pairNote', `复制不了，请手动选中：${value}`);
+      // The Magpie window runs this page in a sandboxed frame, and the
+      // clipboard wants a focused document. The text is selected instead,
+      // so the copy itself is one shortcut away.
+      const target = element('pairingURL');
+      if (target && window.getSelection) {
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        text('pairNote', `复制不了，已经帮你选中，按 ⌘C（ctrl+C）复制：${value}`);
+      } else {
+        text('pairNote', `复制不了，请手动选中：${value}`);
+      }
     }
+  };
+
+  // The Magpie window runs this page inside a sandboxed frame, and a sandbox
+  // without "allow-modals" swallows window.confirm: the browser writes
+  // "Ignored call to 'confirm()'" into the log and the call answers false,
+  // so the button looks dead. The question is asked inside the row instead.
+  const askInRow = (row, holder, question, yesLabel, run) => {
+    const ask = node('span', 'ask');
+    const yes = node('button', 'danger', yesLabel);
+    yes.type = 'button';
+    const no = node('button', 'quiet', '算了');
+    no.type = 'button';
+    const putBack = () => row.replaceChild(holder, ask);
+    yes.addEventListener('click', async () => {
+      putBack();
+      await run();
+    });
+    no.addEventListener('click', putBack);
+    ask.append(node('span', 'ask-question', question), yes, no);
+    row.replaceChild(ask, holder);
   };
 
   const KIND_LABEL = {
@@ -171,7 +204,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
       row.append(node('span', 'mono', item.address));
       const use = node('button', null, '手机从这里连');
       use.type = 'button';
-      use.addEventListener('click', () => { void useOwnAddress(item.address); });
+      use.addEventListener('click', () => { void useOwnAddress(item.address, row, use); });
       row.append(use);
       list.append(row);
     }
@@ -179,21 +212,29 @@ import { pairingLeft, remainingText } from './timing.mjs';
 
   // The phone is told to go to an address of this computer, and the phone
   // side starts listening there.
-  const useOwnAddress = async (address) => {
+  const useOwnAddress = async (address, row, trigger) => {
     try {
       const port = current?.phonePort;
       const host = address.includes(':') ? `[${address}]` : address;
       const url = port ? `http://${host}:${port}` : '';
       const before = current?.external?.url || '';
-      if (before && before !== url && !window.confirm(`把手机换成 ${url}？原来填的地址会换掉。`)) return;
-      await api('api/v1/console/options', {
-        method: 'POST',
-        body: JSON.stringify({
-          listenAddress: address,
-          externalURL: url,
-        }),
-      });
-      await load();
+      const write = async () => {
+        await api('api/v1/console/options', {
+          method: 'POST',
+          body: JSON.stringify({
+            listenAddress: address,
+            externalURL: url,
+          }),
+        });
+        await load();
+      };
+      // The question is asked in the row: a window.confirm does not survive
+      // the sandbox of the Magpie window.
+      if (before && before !== url && row && trigger) {
+        askInRow(row, trigger, `把手机换成 ${url}？原来填的地址会换掉。`, '换地址', write);
+        return;
+      }
+      await write();
     } catch (error) {
       text('externalNote', error.message || '这个地址没有用。');
     }
@@ -281,19 +322,22 @@ import { pairingLeft, remainingText } from './timing.mjs';
       return;
     }
     for (const device of devices) {
-      const row = node('div', device.revokedAt ? 'row gone' : 'row');
+      const row = node('div', device.revokedAt ? 'row device gone' : 'row device');
       const name = node('input');
       name.type = 'text';
       name.value = device.name || '';
       name.setAttribute('aria-label', '设备名称');
+      name.setAttribute('size', '12');
       name.className = 'device-name';
       row.append(name);
       const meta = node('span', 'note');
+      // The row is one line, so the date is short and the rest gives way.
+      const shortTime = value => timeOf(value).replace(/^\d{4}\//, '');
       meta.textContent = [
-        `配对于 ${timeOf(device.createdAt)}`,
-        `最后访问 ${device.lastAccessAt ? timeOf(device.lastAccessAt) : '还没有'}`,
+        `配对于 ${shortTime(device.createdAt)}`,
+        `最后访问 ${device.lastAccessAt ? shortTime(device.lastAccessAt) : '还没有'}`,
         '独立令牌',
-        device.revokedAt ? `已撤销（${timeOf(device.revokedAt)}）` : '',
+        device.revokedAt ? `已撤销（${shortTime(device.revokedAt)}）` : '',
       ]
         .filter(Boolean)
         .join(' · ');
@@ -319,19 +363,26 @@ import { pairingLeft, remainingText } from './timing.mjs';
       if (!device.revokedAt) {
         const revoke = node('button', 'danger', '撤销');
         revoke.type = 'button';
-        revoke.addEventListener('click', async () => {
-          if (!window.confirm(`撤销「${device.name}」之后，这台手机上的组件就读不到用量了。确定吗？`)) return;
-          try {
-            const result = await api('api/v1/console/device', {
-              method: 'POST',
-              body: JSON.stringify({ id: device.id, action: 'revoke' }),
-            });
-            if (current) current.devices = result.devices;
-            text('deviceNote', '已经撤销这一台。别的手机不受影响。');
-            renderDevices(current || {});
-          } catch {
-            text('deviceNote', '没有撤销成功，请再试一次。');
-          }
+        revoke.addEventListener('click', () => {
+          askInRow(
+            row,
+            actions,
+            `撤销「${device.name}」之后，这台手机上的组件就读不到用量了。`,
+            '撤销',
+            async () => {
+              try {
+                const result = await api('api/v1/console/device', {
+                  method: 'POST',
+                  body: JSON.stringify({ id: device.id, action: 'revoke' }),
+                });
+                if (current) current.devices = result.devices;
+                text('deviceNote', '已经撤销这一台。别的手机不受影响。');
+                renderDevices(current || {});
+              } catch {
+                text('deviceNote', '没有撤销成功，请再试一次。');
+              }
+            }
+          );
         });
         actions.append(revoke);
       } else {
@@ -340,27 +391,33 @@ import { pairingLeft, remainingText } from './timing.mjs';
         // what stops it.
         const remove = node('button', 'danger', '删除');
         remove.type = 'button';
-        remove.addEventListener('click', async () => {
-          const question = `把「${device.name}」这一行从名单里删掉？它已经被撤销了，删掉只是不再占地方。`;
-          if (!window.confirm(question)) return;
-          try {
-            const result = await api('api/v1/console/device', {
-              method: 'POST',
-              body: JSON.stringify({ id: device.id, action: 'delete' }),
-            });
-            if (current) current.devices = result.devices;
-            text('deviceNote', '已经删掉了。别的手机不受影响。');
-            renderDevices(current || {});
-          } catch (error) {
-            // The server says why it refused; the page says it in the
-            // language of the page.
-            const reason = String(error?.message || '');
-            text('deviceNote', reason.includes('Revoke')
-              ? '这台手机还在用：先撤销它，再删。'
-              : reason.includes('Not found')
-                ? '这一行已经不在名单上了。'
-                : '没有删掉，请再试一次。');
-          }
+        remove.addEventListener('click', () => {
+          askInRow(
+            row,
+            actions,
+            `把「${device.name}」这一行从名单里删掉？它已经被撤销了，删掉只是不再占地方。`,
+            '删掉',
+            async () => {
+              try {
+                const result = await api('api/v1/console/device', {
+                  method: 'POST',
+                  body: JSON.stringify({ id: device.id, action: 'delete' }),
+                });
+                if (current) current.devices = result.devices;
+                text('deviceNote', '已经删掉了。别的手机不受影响。');
+                renderDevices(current || {});
+              } catch (error) {
+                // The server says why it refused; the page says it in the
+                // language of the page.
+                const reason = String(error?.message || '');
+                text('deviceNote', reason.includes('Revoke')
+                  ? '这台手机还在用：先撤销它，再删。'
+                  : reason.includes('Not found')
+                    ? '这一行已经不在名单上了。'
+                    : '没有删掉，请再试一次。');
+              }
+            }
+          );
         });
         actions.append(remove);
       }
@@ -491,6 +548,60 @@ import { pairingLeft, remainingText } from './timing.mjs';
     };
   };
 
+  // The direction of the numbers and the card of the small widget are chosen
+  // here, on the plugin side. The Scriptable parameter may still say
+  // otherwise, so one widget on the phone can differ from the others.
+  const renderWidgetSettings = (state) => {
+    const list = element('widgetSettings');
+    if (!list) return;
+    list.replaceChildren();
+    const display = state.display || {};
+    // Only the cards that are really shown are offered: a card that is not
+    // projected would leave the small widget saying "not found".
+    const wanted = new Set(display.subscriptions || []);
+    const items = (state.subscriptions || []).filter(subscription => {
+      const id = subscription.id || subscription.provider;
+      if (!id) return false;
+      if (!wanted.size || wanted.has('*') || wanted.has(id)) return true;
+      const family = subscription.provider || subscription.id;
+      if (wanted.has(family)) return true;
+      // A chosen family covers every account of it.
+      return [...wanted].some(entry => String(entry).split('@')[0] === family);
+    });
+    const choice = (field, value, label, hint) => {
+      const wrapper = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = field;
+      input.value = value;
+      const current = field === 'widget-mode' ? (display.widgetMode || 'remaining') : (display.widgetCard || '');
+      input.checked = value === current;
+      wrapper.append(input, node('span', 'name', label));
+      if (hint) wrapper.append(node('span', 'tag param', hint));
+      list.append(wrapper);
+    };
+    choice('widget-mode', 'remaining', '剩余：还有多少');
+    choice('widget-mode', 'used', '已用：用了多少');
+    choice('widget-card', '', '小号组件：跟着第一个');
+    for (const subscription of items) {
+      const id = subscription.id || subscription.provider;
+      if (!id) continue;
+      choice('widget-card', id, `小号组件：${subscription.label || id}`, id);
+    }
+    list.onchange = async (event) => {
+      const input = event.target;
+      if (!input || input.type !== 'radio') return;
+      const body = input.name === 'widget-mode' ? { widgetMode: input.value } : { widgetCard: input.value };
+      try {
+        const result = await api('api/v1/console/options', { method: 'POST', body: JSON.stringify(body) });
+        state.display = result.display;
+        text('widgetNote', '已经记下，手机上的组件下一次刷新就会跟着变。');
+      } catch {
+        text('widgetNote', '没有存上，请再试一次。');
+      }
+    };
+  };
+
   const renderPairing = (state) => {
     const qr = element('qr');
     if (qr && state.qr) qr.src = state.qr;
@@ -538,6 +649,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
     renderRefresh(state);
     renderAdvanced(state);
     renderSubscriptions(state);
+    renderWidgetSettings(state);
   };
 
   // A pairing code that has run out is of no use to anybody. A new one is

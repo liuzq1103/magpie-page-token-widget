@@ -37,76 +37,91 @@
         </aside>
 
         <div class="sheet">
-          <section>
-            <h2>状态</h2>
-            <dl id="facts"></dl>
-          </section>
+          <!-- Two columns on a wide window: the left one holds what is read
+               often, the right one what is touched rarely. -->
+          <div class="col">
+            <section>
+              <h2>状态</h2>
+              <dl id="facts"></dl>
+            </section>
 
-          <section>
-            <h2>数据更新</h2>
-            <div id="refresh" class="checks inline"></div>
-            <p class="note" id="refreshNote"></p>
-          </section>
+            <section>
+              <h2>数据更新</h2>
+              <div id="refresh" class="checks inline"></div>
+              <p class="note" id="refreshNote"></p>
+            </section>
 
-          <section>
-            <h2>显示哪些订阅</h2>
-            <div id="subscriptions" class="checks"></div>
-            <p class="note">
-              这里改的是中号和大号组件里的内容。勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。小号组件用自己的参数选一张：codex、minimax、glm，或 codex@账号名。
-            </p>
-            <p class="note" id="subNote"></p>
-          </section>
+            <section>
+              <h2>显示哪些订阅</h2>
+              <div id="subscriptions" class="checks"></div>
+              <p class="note">
+                这里改的是中号和大号组件里的内容。勾一个厂商＝这个厂商的所有账号都显示；只勾一个账号＝只有这个账号。
+              </p>
+              <p class="note" id="subNote"></p>
+            </section>
 
-          <section>
-            <h2>设备管理</h2>
-            <div id="devices" class="list"></div>
-            <p class="note" id="deviceNote"></p>
-            <p class="note">
-              扫码的时候手机自己换到一枚只读的令牌，服务这边只留它的指纹。令牌是每台手机一枚，所以撤销哪一台就只停哪一台。撤销之后这一行还留在名单里（当作个记录），再点「删除」才把它从名单上划掉。扫码这条路你一次也不用手抄令牌。
-            </p>
-            <div class="row manual">
-              <input id="manualName" type="text" placeholder="新手机的名字" />
-              <button id="manualToken" type="button">给这台手机一个令牌</button>
-            </div>
-            <p class="note" id="manualNote"></p>
-          </section>
+            <section>
+              <h2>小组件</h2>
+              <div id="widgetSettings" class="checks"></div>
+              <p class="note">
+                这里选的是小组件的样子：数字是「剩余」还是「已用」，小号组件显示哪一张卡片。不用再去 Scriptable 里敲参数了。手机上那个参数还能临时改一次，改完只影响那一个组件。
+              </p>
+              <p class="note" id="widgetNote"></p>
+            </section>
+          </div>
 
-          <section>
-            <h2>网络连接</h2>
-            <div class="row">
-              <input id="external" type="text" placeholder="http://192.168.1.50:8791" />
-              <button id="saveExternal" type="button">保存地址</button>
-            </div>
-            <p class="note" id="externalNote"></p>
-            <div class="actions left">
-              <button id="diagnose" type="button">诊断连接</button>
-              <button id="restoreTailscale" type="button" class="quiet">恢复 Tailscale 默认连接</button>
-            </div>
-            <p class="note" id="diagnoseNote"></p>
-            <p class="note" id="restoreNote"></p>
+          <div class="col">
+            <section>
+              <h2>设备管理</h2>
+              <div id="devices" class="list"></div>
+              <p class="note" id="deviceNote"></p>
+              <p class="note">
+                扫码的时候手机自己换到一枚只读的令牌，服务这边只留它的指纹。令牌是每台手机一枚，所以撤销哪一台就只停哪一台。撤销之后这一行还留在名单里（当作个记录），再点「删除」才把它从名单上划掉。扫码这条路你一次也不用手抄令牌。
+              </p>
+              <div class="row manual">
+                <input id="manualName" type="text" placeholder="新手机的名字" />
+                <button id="manualToken" type="button">给这台手机一个令牌</button>
+              </div>
+              <p class="note" id="manualNote"></p>
+            </section>
 
-            <details>
-              <summary id="peersSummary">尾网里的 iPhone</summary>
-              <div id="peers" class="list"></div>
-            </details>
-            <details>
-              <summary id="interfacesSummary">这台电脑的网卡</summary>
-              <div id="interfaces" class="list"></div>
-              <p class="note" id="lanNote"></p>
-            </details>
-            <details>
-              <summary id="bindSummary">手机可以从这里连</summary>
-              <div id="bindList" class="list"></div>
-            </details>
-          </section>
+            <section>
+              <h2>网络连接</h2>
+              <div class="row">
+                <input id="external" type="text" placeholder="http://192.168.1.50:8791" />
+                <button id="saveExternal" type="button">保存地址</button>
+              </div>
+              <p class="note" id="externalNote"></p>
+              <div class="actions left">
+                <button id="diagnose" type="button">诊断连接</button>
+                <button id="restoreTailscale" type="button" class="quiet">恢复 Tailscale 默认连接</button>
+              </div>
+              <p class="note" id="diagnoseNote"></p>
+              <p class="note" id="restoreNote"></p>
 
-          <section>
-            <details>
-              <summary>高级设置</summary>
-              <dl id="advanced"></dl>
-              <p class="note" id="portNote"></p>
-            </details>
-          </section>
+              <details>
+                <summary id="peersSummary">尾网里的 iPhone</summary>
+                <div id="peers" class="list"></div>
+              </details>
+              <details>
+                <summary id="interfacesSummary">这台电脑的网卡</summary>
+                <div id="interfaces" class="list"></div>
+                <p class="note" id="lanNote"></p>
+              </details>
+              <details>
+                <summary id="bindSummary">手机可以从这里连</summary>
+                <div id="bindList" class="list"></div>
+              </details>
+            </section>
+
+            <section>
+              <details>
+                <summary>高级设置</summary>
+                <dl id="advanced"></dl>
+                <p class="note" id="portNote"></p>
+              </details>
+            </section>
+          </div>
         </div>
       </div>
     </main>

@@ -79,9 +79,20 @@ if (await alert.presentAlert() !== -1) {
     if (token.length < 32) throw new Error("令牌不完整，请复制 PC 上生成的完整只读令牌。");
     const probe = new Request(baseURL + "/api/v1/overview");
     probe.headers = { Authorization: "Bearer " + token }; probe.timeoutInterval = 12;
-    const data = await probe.loadJSON();
+    // The service says 401 with a body; loadJSON() throws on it first, so the
+    // status is read out of the request (the documented place) or out of the
+    // message. Otherwise a wrong token showed a raw Scriptable error.
+    let data = null;
+    try {
+      data = await probe.loadJSON();
+    } catch (error) {
+      const said = /status\s*(\d{3})/i.exec(String((error && error.message) || ""));
+      const status = (probe.response && Number(probe.response.statusCode)) || (said ? Number(said[1]) : 0);
+      if (status === 401) throw new Error("只读令牌无效。");
+      throw new Error("连不上这个服务：" + (error && error.message ? error.message : "没有回答"));
+    }
     if (probe.response && probe.response.statusCode === 401) throw new Error("只读令牌无效。");
-    if (data.schemaVersion !== 1) throw new Error("未识别到兼容服务，请检查地址与令牌。");
+    if (!data || data.schemaVersion !== 1) throw new Error("未识别到兼容服务，请检查地址与令牌。");
     const download = new Request(baseURL + "/scriptable/UsageWidget.js");
     download.headers = { Authorization: "Bearer " + token };
     download.timeoutInterval = 12;

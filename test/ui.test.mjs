@@ -156,3 +156,99 @@ test('the phone page does not ask for a tailnet of its own', async () => {
   assert.doesNotMatch(installer, /先连接 Tailscale/);
   assert.match(installer, /确保 iPhone 能访问你填写的服务地址/);
 });
+
+test('the console never asks with a dialog', async () => {
+  const script = await read('ui/app.js');
+  // The Magpie window runs the page in a sandbox: a confirm() or an alert()
+  // is swallowed there and the button looks dead. The page asks in the row
+  // instead, where the answer is written down.
+  // The comments talk about these calls on purpose, so they are taken away
+  // before the page is looked at.
+  const code = script.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /\b(?:window\.)?(?:confirm|alert|prompt)\s*\(/);
+  assert.match(script, /askInRow/);
+});
+
+test('the widget is set up on the plugin side', async () => {
+  const page = await read('ui/index.html');
+  const script = await read('ui/app.js');
+  const widget = await read('scriptable/UsageWidget.js');
+  // The console has the choice: the direction of the numbers and the card of
+  // the small widget.
+  assert.match(page, /id="widgetSettings"/);
+  assert.match(script, /widgetMode/);
+  assert.match(script, /widgetCard/);
+  // The phone reads that choice; the Scriptable parameter may still change
+  // it for one widget.
+  assert.match(widget, /data\.display/);
+  assert.match(widget, /plugin\.widgetMode/);
+  assert.match(widget, /plugin\.widgetCard/);
+});
+
+test('the phone page keeps the token on the phone', async () => {
+  const page = await read('mobile/index.html');
+  const script = await read('mobile/app.js');
+  // Safari forgets a session when the tab is closed, and the page is opened
+  // from the widget days later. The token stays in the phone until 「断开」.
+  assert.match(script, /localStorage/);
+  assert.match(page, /id="forget"/);
+  // The token is not left in the address of the page.
+  assert.match(script, /history\.replaceState/);
+  // A frame that refuses the storage (the Magpie window runs the page in a
+  // sandbox) must not take the page down: every use of the storage goes
+  // through the helper that catches the refusal.
+  const storage = script.match(/(?:local|session)Storage\.\w+/g) || [];
+  assert.ok(storage.length > 0, 'the phone page should use the storage');
+  const helper = script.slice(0, script.indexOf('const savedTheme'));
+  for (const call of storage) assert.ok(helper.includes(call), `the storage call ${call} should live in the helper`);
+});
+
+test('the phone page reads smaller on a small screen', async () => {
+  const css = await read('mobile/style.css');
+  // The percent of the quota was the loudest thing on the page.
+  assert.match(css, /@media\(max-width:860px\)/);
+  const small = css.slice(css.indexOf('@media(max-width:860px)'));
+  assert.match(small, /\.daily-number\{font-size:34px/);
+  assert.match(small, /\.quota-card \.window-value[^{]*\{font-size:19px/);
+  // The wide window was loud too: the percentage next to the big number.
+  assert.match(css, /\.primary \.window-value small\{font-size:13px/);
+  assert.match(css, /\.daily-number\{font-size:42px/);
+});
+
+test('a wide window uses the space on both sides', async () => {
+  const css = await read('ui/style.css');
+  const html = await read('ui/index.html');
+  // The page is wider now, and the right half splits in two when there is
+  // room for it.
+  assert.match(css, /max-width:\s*1440px/);
+  assert.match(css, /@media\s*\(min-width:\s*1180px\)/);
+  // The two columns are wrapped, so the grid has two children and not six.
+  assert.match(html, /class="col"/);
+  // A device is one line: the name, the note and the buttons share it, and
+  // the long note gives way instead of pushing the buttons off the row.
+  const device = css.slice(css.indexOf('.row.device'));
+  assert.match(device, /flex-wrap:\s*nowrap/);
+  assert.match(device, /text-overflow:\s*ellipsis/);
+  assert.match(device, /min-width:\s*0/);
+});
+
+test('the actions of a device still reach the service', async () => {
+  const script = await read('ui/app.js');
+  assert.match(script, /action: 'revoke'/);
+  assert.match(script, /action: 'delete'/);
+  // The name of a device can still be changed.
+  assert.match(script, /action: 'rename'/);
+});
+
+test('the widget tells a wrong token from a quiet network', async () => {
+  const widget = await read('scriptable/UsageWidget.js');
+  const installer = await read('scriptable/SetupUsageWidget.js');
+  // The service answers 401 and loadJSON() throws before the status can be
+  // read, so the status is read where Scriptable keeps it.
+  assert.match(widget, /req\.response/);
+  assert.match(widget, /令牌无效，请重新设置/);
+  // The installer had the same dead check: a wrong token showed a raw
+  // Scriptable error instead of a sentence.
+  assert.match(installer, /probe\.response/);
+  assert.match(installer, /只读令牌无效。/);
+});
