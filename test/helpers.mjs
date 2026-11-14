@@ -25,10 +25,11 @@ export const tempDir = async () => mkdtemp(path.join(tmpdir(), 'token-widget-'))
 // give the same number again right after it gave it back, and two tests that
 // share a number would fight over it.
 const handedOut = new Set();
-// Some ports are refused by the fetch of the browser (and of node), so a
-// test that lands on one of them fails with "bad port". The list is the one
-// of the WHATWG fetch standard.
-const BAD_PORTS = new Set([
+// The ports that the fetch of the browser (and of node) refuses to talk to.
+// A gateway of the tests that lands on one of them answers nothing to the
+// collector, and the test fails for a reason that has nothing to do with the
+// code it wants to test.
+export const BAD_PORTS = new Set([
   1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95,
   101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161,
   179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563,
@@ -98,16 +99,26 @@ export async function startGateway(routes = {}) {
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(answer));
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  return {
-    url: `http://127.0.0.1:${port}`,
-    calls,
-    close: () => new Promise((resolve) => {
-      if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
-      server.close(resolve);
-    }),
-  };
+  // The system picks the number when the port is 0. Sometimes it picks one
+  // that the fetch refuses, and then the gateway is deaf. Give it back and
+  // ask for another one.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    if (BAD_PORTS.has(port)) {
+      await new Promise((resolve) => server.close(resolve));
+      continue;
+    }
+    return {
+      url: `http://127.0.0.1:${port}`,
+      calls,
+      close: () => new Promise((resolve) => {
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+        server.close(resolve);
+      }),
+    };
+  }
+  throw new Error('no usable port for the gateway of the tests');
 }
 
 // A mock of the command of Tailscale. The published ports live in it, so a
