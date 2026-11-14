@@ -76,7 +76,11 @@ import { pairingLeft, remainingText } from './timing.mjs';
     yes.type = 'button';
     const no = node('button', 'quiet', '算了');
     no.type = 'button';
-    const putBack = () => row.replaceChild(holder, ask);
+    const putBack = () => {
+      // The row may have been drawn again while the question was open; then
+      // there is nothing to put back.
+      if (ask.parentNode === row) row.replaceChild(holder, ask);
+    };
     yes.addEventListener('click', async () => {
       putBack();
       await run();
@@ -219,14 +223,20 @@ import { pairingLeft, remainingText } from './timing.mjs';
       const url = port ? `http://${host}:${port}` : '';
       const before = current?.external?.url || '';
       const write = async () => {
-        await api('api/v1/console/options', {
-          method: 'POST',
-          body: JSON.stringify({
-            listenAddress: address,
-            externalURL: url,
-          }),
-        });
-        await load();
+        // The question is answered later, outside this try, so the refusal of
+        // the service has to be caught here.
+        try {
+          await api('api/v1/console/options', {
+            method: 'POST',
+            body: JSON.stringify({
+              listenAddress: address,
+              externalURL: url,
+            }),
+          });
+          await load();
+        } catch (error) {
+          text('externalNote', error.message || '这个地址没有用。');
+        }
       };
       // The question is asked in the row: a window.confirm does not survive
       // the sandbox of the Magpie window.
@@ -597,7 +607,9 @@ import { pairingLeft, remainingText } from './timing.mjs';
         state.display = result.display;
         text('widgetNote', '已经记下，手机上的组件下一次刷新就会跟着变。');
       } catch {
+        // Nothing was saved, so the radio is put back where it was.
         text('widgetNote', '没有存上，请再试一次。');
+        renderWidgetSettings(state);
       }
     };
   };

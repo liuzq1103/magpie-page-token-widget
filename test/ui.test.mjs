@@ -240,7 +240,7 @@ test('the actions of a device still reach the service', async () => {
   assert.match(script, /action: 'rename'/);
 });
 
-test('the widget tells a wrong token from a quiet network', async () => {
+test('the widget script has the words for a wrong token and for a quiet network', async () => {
   const widget = await read('scriptable/UsageWidget.js');
   const installer = await read('scriptable/SetupUsageWidget.js');
   // The service answers 401 and loadJSON() throws before the status can be

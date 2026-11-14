@@ -2,11 +2,14 @@
 // The Magpie plugin hands this script to the phone and fills PAIRED in.
 // No credentials belong in this file.
 // Widget parameter: a provider id for the small family (codex, minimax, glm),
-// optionally "|used" to show consumed instead of remaining percent (glm|used).
+// optionally "|used" to show consumed instead of remaining percent (glm|used),
+// or "|remaining" to show what is left again.
 // One account of a vendor is named codex@<account>; the vendor on its own
 // means the first account of that vendor.
 // On medium and large families "used" alone flips every card.
 // Both families adapt to 1–6 subscriptions; "page=2|used" selects another page.
+// Without a parameter the widget follows the choice of the plugin page (the
+// "小组件" block there): remaining or used, and which card the small one shows.
 const SETTINGS_KEY = "ameaq-rmrcxu-b2";
 // The plugin replaces this line with the address of the service and a one-time
 // pairing code the first time the script is downloaded.
@@ -89,8 +92,11 @@ if ((!settings || !settings.token) && PAIRED && PAIRED.code) {
 }
 try { if (fm.fileExists(cachePath)) data = JSON.parse(fm.readString(cachePath)); } catch {}
 if (settings && settings.baseURL && settings.token) {
+  // The request lives outside the try: the catch has to be able to look at
+  // the response it left behind.
+  let req = null;
   try {
-    const req = new Request(settings.baseURL + "/api/v1/overview");
+    req = new Request(settings.baseURL + "/api/v1/overview");
     req.headers = { Authorization: "Bearer " + settings.token };
     req.timeoutInterval = 10;
     const fresh = await req.loadJSON();
@@ -113,7 +119,7 @@ if (settings && settings.baseURL && settings.token) {
     failure = status === 401 || reason.includes("令牌")
       ? "令牌无效，请重新设置"
       : status ? "服务返回 " + status
-      : /timeout|超时/i.test(reason) ? "服务没有回答"
+      : /timed out|timeout|超时/i.test(reason) ? "服务没有回答"
       : "连不上服务";
   }
   widget.url = settings.baseURL + "/#token=" + encodeURIComponent(settings.token);
@@ -336,10 +342,13 @@ function subscriptionGrid(parent, cards, sharedWindow) {
   }
 }
 if (!settings || !data || data.schemaVersion !== 1) {
-  header("未连接"); widget.addSpacer(18);
+  header(failure || "未连接"); widget.addSpacer(18);
   text(widget, settings ? "暂时无法连接" : "先连接你的用量", 16, colors.text, "medium");
   widget.addSpacer(8);
-  const hint = text(widget, settings ? "检查 PC 与 Tailscale，稍后重试。" : "在 Magpie 的插件页重新配对。", 11, colors.muted);
+  // Without a cached reading there is nothing else to show, so the reason (a
+  // token the service does not know, a service that answers with an error, a
+  // service that does not answer) is the most useful thing here.
+  const hint = text(widget, failure || (settings ? "检查 PC 与 Tailscale，稍后重试。" : "在 Magpie 的插件页重新配对。"), 11, colors.muted);
   hint.lineLimit = 3; widget.addSpacer();
 } else {
   const observations = Object.values(data.sources).map(s => s.observedAt).filter(Boolean).sort();

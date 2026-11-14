@@ -47,7 +47,12 @@ const remember = value => store.set('usage-token', JSON.stringify({ token: value
 const recall = () => {
   try {
     const saved = JSON.parse(store.get('usage-token'));
-    if (saved && typeof saved.token === 'string' && Date.now() - Number(saved.at || 0) < REMEMBER_MS) return saved.token;
+    if (saved && typeof saved.token === 'string') {
+      if (Date.now() - Number(saved.at || 0) < REMEMBER_MS) return saved.token;
+      // Past the window it is not only ignored, it is dropped: an old token
+      // should not stay readable in the storage.
+      store.drop('usage-token');
+    }
   } catch { /* Nothing stored, or something that is not ours. */ }
   return null;
 };
@@ -270,6 +275,9 @@ $('auth-form').addEventListener('submit', event => {
 // for it again.
 $('forget').addEventListener('click', () => {
   token = null; store.drop('usage-token');
+  // The old numbers go with the token: they belong to the device that was
+  // just disconnected.
+  last = null; store.drop('usage-overview');
   $('connection').textContent = '已断开';
   $('notice').hidden = false;
   $('notice').textContent = '这台手机上的令牌已经抹掉了。下次打开这个页面会重新问你要。';
