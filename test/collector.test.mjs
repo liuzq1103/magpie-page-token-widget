@@ -319,6 +319,29 @@ test('an old snapshot comes back when the reading takes too long', async () => {
   }
 });
 
+test('a reading that is exactly at the edge of its life is already old', async () => {
+  // The edge of the life of a reading must not depend on the resolution of
+  // the clock: with a ttl of zero the reading is old at once, in the same
+  // millisecond as the reading itself.
+  const gateway = await startGateway({
+    '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
+    '/v1/magpie/usage?period=today': todayAnswer,
+    '/v1/magpie/usage/requests?period=7d&limit=1': weekAnswer,
+  });
+  const local = await tempDir();
+  try {
+    const collector = collectorFor(gateway, local, { ttlMs: 0 });
+    await collector.refresh();
+    assert.equal(collector.fresh(), false, 'a ttl of zero means: old right away');
+    const withLife = collectorFor(gateway, local, { ttlMs: 60_000 });
+    await withLife.refresh();
+    assert.equal(withLife.fresh(), true, 'a reading inside its life is fresh');
+  } finally {
+    await gateway.close();
+    await cleanup(local);
+  }
+});
+
 test('many readers share one reading', async () => {
   const gateway = await startGateway({
     '/v1/magpie/quotas?kept=1': quotaAnswer([quotaRow('codex', 'alpha@example.com')]),
