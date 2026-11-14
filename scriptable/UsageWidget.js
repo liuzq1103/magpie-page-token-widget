@@ -345,7 +345,8 @@ const plugin = data && data.display ? data.display : {};
 const wantsUsed = parameter.some(part => part.toLowerCase() === "used");
 const wantsRemaining = parameter.some(part => part.toLowerCase() === "remaining");
 const showUsed = wantsUsed || (!wantsRemaining && plugin.widgetMode === "used");
-const requested = selectors[0] || plugin.widgetCard || "codex";
+const chosen = selectors[0] || plugin.widgetCard || "";
+const requested = chosen || "codex";
 const emptyWindow = { label: "Quota", remainingPercent: null, usedPercent: null, resetsAt: null };
 function subscriptionGrid(parent, cards, sharedWindow) {
   const large = family === "large";
@@ -480,7 +481,12 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
 } else {
   const observations = Object.values(data.sources).map(s => s.observedAt).filter(Boolean).sort();
   const day = value => new Date(value + 8 * 3600000).toISOString().slice(0, 10);
-  if (data.sources.today.outdated || data.sources.today.observedAt && day(Date.parse(data.sources.today.observedAt)) !== day(Date.now())) data.usage.today = null;
+  if (data.sources.today.outdated || data.sources.today.observedAt && day(Date.parse(data.sources.today.observedAt)) !== day(Date.now())) {
+    // A reading of another day is not the usage of today: neither the total
+    // nor the numbers of the cards may be shown as if they were today's.
+    data.usage.today = null;
+    for (const card of data.subscriptions || []) if (card) card.usage = null;
+  }
   cached = cached || Object.values(data.sources).some(s => s.state !== "ok") || data.subscriptions.some(c => c.stale) || observations.some(s => Date.now() - Date.parse(s) > 180000);
   const status = failure || (cached ? "缓存 " : "") + clock(observations[0]);
   if (family === "small") {
@@ -488,17 +494,21 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     // A parameter may name one account of a vendor (codex@alice) or the
     // vendor itself, which then means its first account. The id is matched as
     // it is written: two accounts of one vendor may differ in their case only.
-    const exact = data.subscriptions.find(c => c.id === requested);
-    const same = data.subscriptions.filter(c => String(c.id).toLowerCase() === requested.toLowerCase());
+    // Without a word from the user the widget follows the first card that has
+    // a number for today: an account the gateway did not report today has no
+    // number, and a dash is a poor answer to "how much today".
+    const cards = data.subscriptions || [];
+    const exact = chosen ? cards.find(c => c.id === chosen) : null;
+    const same = chosen ? cards.filter(c => String(c.id).toLowerCase() === chosen.toLowerCase()) : [];
     // A vendor is matched before an account: an account of another vendor
     // may carry the name of this one.
-    const byProvider = data.subscriptions.find(c => c.provider === requested.toLowerCase());
-    const byAccount = data.subscriptions.find(c => String(c.account || "").toLowerCase() === requested.toLowerCase());
+    const byProvider = chosen ? cards.find(c => c.provider === chosen.toLowerCase()) : null;
+    const byAccount = chosen ? cards.find(c => String(c.account || "").toLowerCase() === chosen.toLowerCase()) : null;
     const found = exact || (same.length === 1 ? same[0] : null) || byProvider || byAccount;
     // The account of a card can be renamed; an old parameter then finds
     // nothing. The first card is shown instead, and the note says so.
-    const card = found || data.subscriptions[0];
-    const missing = !found && Boolean(card);
+    const card = found || cards.find(c => c && c.usage && c.usage.today) || cards[0];
+    const missing = Boolean(chosen) && !found && Boolean(card);
     widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
     const name = widget.addStack();

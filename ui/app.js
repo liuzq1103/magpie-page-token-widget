@@ -520,9 +520,10 @@ import { pairingLeft, remainingText } from './timing.mjs';
     // and the widget follow, so it is written back with the selection.
     let dragging = null;
     // The rows are read in the order they are on the page, so a dragged row
-    // is where it was put. A family whose accounts stand together and are all
-    // on is written down as the family; the rest is written down one account
-    // at a time, so a row dragged between two families does not jump back.
+    // is where it was put. Every row is written down as the account it is:
+    // two accounts of one vendor can stand in any order the user gives them,
+    // and a vendor written down as a vendor would put its accounts back in
+    // the order the service happens to know them.
     const collect = () => {
       const checked = new Set(
         [...list.querySelectorAll('input')]
@@ -530,24 +531,10 @@ import { pairingLeft, remainingText } from './timing.mjs';
           .map((input) => input.value)
       );
       const next = [];
-      let run = [];
-      const familyOfRow = id => familyOf.get(id) || id;
-      const flush = () => {
-        if (!run.length) return;
-        const family = familyOfRow(run[0]);
-        const together = run.every(id => familyOfRow(id) === family);
-        const accounts = items.filter(subscription => familyOfRow(subscription.id) === family);
-        const every = together && run.length === accounts.length && run.every(id => checked.has(id));
-        if (every) next.push(family);
-        else for (const id of run) if (checked.has(id)) next.push(id);
-        run = [];
-      };
       for (const row of list.querySelectorAll('label')) {
         const id = row.querySelector('input').value;
-        if (run.length && familyOfRow(run[0]) !== familyOfRow(id)) flush();
-        run.push(id);
+        if (checked.has(id)) next.push(id);
       }
-      flush();
       return next;
     };
     const save = async () => {
@@ -658,11 +645,12 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const items = (state.subscriptions || []).filter(subscription => {
       const id = subscription.id || subscription.provider;
       if (!id) return false;
+      // Only the cards that are really shown are offered: a card that is not
+      // projected would leave the small widget saying "not found". A card of
+      // an account is not the card of its vendor, so only the id itself is
+      // taken.
       if (!wanted.size || wanted.has('*') || wanted.has(id)) return true;
-      const family = subscription.provider || subscription.id;
-      if (wanted.has(family)) return true;
-      // A chosen family covers every account of it.
-      return [...wanted].some(entry => String(entry).split('@')[0] === family);
+      return false;
     });
     const choice = (field, value, label, hint) => {
       const wrapper = document.createElement('label');
@@ -678,11 +666,14 @@ import { pairingLeft, remainingText } from './timing.mjs';
     };
     choice('widget-mode', 'remaining', '剩余：还有多少');
     choice('widget-mode', 'used', '已用：用了多少');
-    choice('widget-card', '', '小号组件：跟着第一个');
+    choice('widget-card', '', '小号组件：跟着第一个有数的');
     for (const subscription of items) {
       const id = subscription.id || subscription.provider;
       if (!id) continue;
-      choice('widget-card', id, `小号组件：${subscription.label || id}`, id);
+      // An account the gateway did not report today has no number to show;
+      // the widget would only have a dash for it.
+      const hint = subscription.hasToday === false ? id + ' · 今天没数' : id;
+      choice('widget-card', id, `小号组件：${subscription.label || id}`, hint);
     }
     list.onchange = async (event) => {
       const input = event.target;

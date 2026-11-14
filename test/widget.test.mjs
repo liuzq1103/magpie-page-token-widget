@@ -276,6 +276,78 @@ test('a code that has been used is not asked for again', async () => {
   assert.equal(asked.find((call) => call.url.endsWith('/api/v1/session')), undefined);
 });
 
+test('a reading of another day is not shown as the usage of today', async () => {
+  // The service answers with a reading of yesterday: neither the total nor
+  // the number of the card may be shown as today's.
+  const yesterday = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const reading = overview();
+  reading.sources.today = { state: 'stale', observedAt: yesterday, outdated: true };
+  const { Request } = listening({
+    '/api/v1/overview': reading,
+  });
+  // The medium widget shows the total of the day.
+  const medium = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  assert.ok(medium.log.some((line) => line.includes('今日 — Token')), medium.log.join(' | '));
+  // The small widget shows the number of the card it shows.
+  const small = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  assert.ok(small.log.some((line) => line.includes('今日 — token')), small.log.join(' | '));
+});
+
+test('the widget follows the first card that has a number for today', async () => {
+  // The gateway did not report the first account today: the widget must not
+  // stand on that card with only a dash, as long as another one has a number.
+  const reading = overview();
+  reading.display.widgetCard = '';
+  reading.subscriptions = [
+    {
+      id: 'codex@alpha',
+      provider: 'codex',
+      account: 'alpha',
+      label: 'Codex · alpha',
+      windows: [{ label: '5h', usedPercent: 41, remainingPercent: 59, resetsAt: Date.now() + 3600000 }],
+      usage: null,
+      stale: false,
+    },
+    {
+      id: 'codex@beta',
+      provider: 'codex',
+      account: 'beta',
+      label: 'Codex · beta',
+      windows: [{ label: '5h', usedPercent: 30, remainingPercent: 70, resetsAt: Date.now() + 3600000 }],
+      usage: { today: { totalTokens: 600 } },
+      stale: false,
+    },
+  ];
+  const { Request } = listening({
+    '/api/v1/overview': reading,
+  });
+  const run = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  assert.ok(run.log.some((line) => line.includes('Codex · beta')), run.log.join(' | '));
+  assert.ok(run.log.some((line) => line.includes('今日 600 token')), run.log.join(' | '));
+});
+
+test('a card the user chose is shown even when it has no number', async () => {
+  const reading = overview();
+  reading.display.widgetCard = 'codex@alpha';
+  reading.subscriptions = [
+    {
+      id: 'codex@alpha',
+      provider: 'codex',
+      account: 'alpha',
+      label: 'Codex · alpha',
+      windows: [{ label: '5h', usedPercent: 41, remainingPercent: 59, resetsAt: Date.now() + 3600000 }],
+      usage: null,
+      stale: false,
+    },
+  ];
+  const { Request } = listening({
+    '/api/v1/overview': reading,
+  });
+  const run = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  assert.ok(run.log.some((line) => line.includes('Codex · alpha')), run.log.join(' | '));
+  assert.ok(run.log.some((line) => line.includes('今日 — token')), run.log.join(' | '));
+});
+
 test('a code that only failed because the service did not answer is asked again', async () => {
   // The service did not answer at all: that is not the code's fault, so the
   // code stays fresh and is tried again the next time.

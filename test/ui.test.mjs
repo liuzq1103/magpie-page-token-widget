@@ -299,6 +299,11 @@ test('a dragged row keeps the place it was dragged into', async () => {
   // vendor first would put a dragged row back where its vendor stands.
   assert.doesNotMatch(page, /families\.set\(family/);
   assert.match(page, /for \(const row of list\.querySelectorAll\('label'\)\)/);
+  // Every row is written down as the account it is. A vendor written down as
+  // a vendor would put its own accounts back in the order the service knows
+  // them — the two accounts of one vendor would jump back on every save.
+  assert.doesNotMatch(page, /next\.push\(family\)/);
+  assert.match(page, /if \(checked\.has\(id\)\) next\.push\(id\)/);
   // The handle must not press the checkbox of the row either.
   assert.match(page, /grip\.addEventListener\('click',[\s\S]{0,160}preventDefault/);
 });

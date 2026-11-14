@@ -163,7 +163,7 @@ test('the small widget is never empty because of an old parameter', async () => 
   const source = await readFile(path.join(root, 'scriptable', 'UsageWidget.js'), 'utf8');
   // A parameter that names an account that was renamed finds nothing; the
   // first card is shown instead and the note says what was not found.
-  assert.match(source, /const card = found \|\| data\.subscriptions\[0\];/);
+  assert.match(source, /const card = found \|\| cards\.find\(c => c && c\.usage && c\.usage\.today\) \|\| cards\[0\];/);
   assert.match(source, /没有找到/);
   // Every number says which way it is read.
   assert.match(source, /function direction\(\)/);

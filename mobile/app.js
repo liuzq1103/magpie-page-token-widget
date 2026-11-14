@@ -220,9 +220,12 @@ function render(data, offline = false) {
   if (data.demo) notices.push('演示模式· 所有数字、模型和设备用量均为虚构数据。');
   if (stale) notices.push('当前显示最后成功的统计，请查看下方更新时间；未获取到的数据以 — 表示。');
   $('notice').hidden = !notices.length; $('notice').textContent = notices.join(' ');
-  renderQuotas(data.subscriptions);
   const day = value => new Date(value + 8 * 3600000).toISOString().slice(0, 10);
   const oldDay = data.sources.today.outdated || data.sources.today.observedAt && day(Date.parse(data.sources.today.observedAt)) !== day(Date.now());
+  // A reading of another day is not the usage of today: the cards must not
+  // keep yesterday's number and let it be read as today's.
+  if (oldDay) for (const card of data.subscriptions || []) if (card) card.usage = null;
+  renderQuotas(data.subscriptions);
   const today = oldDay ? null : data.usage.today, week = data.usage.week;
   $('today-total').textContent = compact(today?.totalTokens);
   $('today-total').title = today ? exact(today.totalTokens) + ' Token' : '';

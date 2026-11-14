@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.2 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.3 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -174,6 +174,10 @@ There is a "disconnect" at the top of the page on the phone: it wipes the token 
 The account in a parameter is the account's name as it is right now. The console writes the parameters the widget understands next to every subscription, so one can be copied from there. When an account is renamed the parameter finds nothing, and the small widget is no longer empty: it shows the first card and writes "not found" next to it.
 
 **The parameter is optional now**: the console has a "widget" block where the look is chosen — whether the number is what is remaining or what is used, and which card the small widget shows. Every widget follows that choice, and there is no parameter to type in Scriptable any more. The parameter still works: when it is filled in it wins, for that one widget only; when it is empty the widget listens to the console.
+
+**What "follows the first one with a number" means**: when the gateway did not report an account for today, that card has only a dash on it (not a zero — "not known"). A small widget that was not told which card to show follows **the first card that has a number for today**. In the "widget" block of the plugin page, an account the gateway did not report today is marked "no number today", and another card can be picked by hand.
+
+**Yesterday's numbers are not today's**: when the reading that came in is of another day, today's cell stays empty (the widget writes "—", the phone page writes "the usage is not known") — yesterday's numbers are never shown as today's.
 
 ### What "remaining" is
 
