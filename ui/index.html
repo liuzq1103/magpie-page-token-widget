@@ -16,6 +16,7 @@
         </p>
       </header>
 
+      <div class="cards">
       <section class="card">
         <h2>扫码配对</h2>
         <div class="qr"><img id="qr" alt="配对二维码" /></div>
@@ -24,6 +25,7 @@
           <button id="copyLink" type="button">复制配对链接</button>
           <button id="rotate" type="button" class="quiet">重新生成配对码</button>
         </div>
+        <p class="countdown" id="pairCountdown"></p>
         <p class="note" id="pairNote"></p>
       </section>
 
@@ -83,12 +85,6 @@
         <details>
           <summary>高级设置</summary>
           <dl id="advanced"></dl>
-          <h3>Magpie 网关</h3>
-          <div class="row manual">
-            <input id="gateway" type="text" placeholder="http://127.0.0.1:3425" />
-            <button id="saveGateway" type="button">保存网关地址</button>
-          </div>
-          <p class="note" id="gatewayNote"></p>
           <p class="note" id="portNote"></p>
         </details>
       </section>
@@ -103,7 +99,8 @@
         </ol>
         <p class="note" id="lifetime"></p>
       </section>
+      </div>
     </main>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

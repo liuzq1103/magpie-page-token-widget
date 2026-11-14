@@ -330,6 +330,11 @@ test('the console counts the time of the pairing code itself', async () => {
   // If the page used the number the server sent when it was opened, the code
   // would never be renewed.
   const script = await readFile(path.join(root, 'ui', 'app.js'), 'utf8');
-  assert.equal(script.includes('pairingExpiresAt'), true);
-  assert.equal(script.includes('pairingLeft(state)'), true);
+  const timing = await readFile(path.join(root, 'ui', 'timing.mjs'), 'utf8');
+  // The time is counted from the moment the code was made, on the page.
+  assert.equal(timing.includes('pairingExpiresAt'), true);
+  assert.equal(timing.includes('export const pairingLeft'), true);
+  // The page uses it, and it counts the time itself.
+  assert.equal(script.includes("from './timing.mjs'"), true);
+  assert.equal(script.includes('pairingLeft(current)'), true);
 });

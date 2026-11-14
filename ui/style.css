@@ -39,7 +39,7 @@ body {
     "Microsoft YaHei", sans-serif;
 }
 main {
-  max-width: 640px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 28px 20px 56px;
 }
@@ -60,12 +60,26 @@ h2 {
   margin: 0;
   color: var(--muted);
 }
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.cards .card {
+  margin-bottom: 0;
+}
 .card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 18px;
   margin-bottom: 14px;
+}
+.countdown {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 .qr {
   display: grid;
@@ -109,6 +123,14 @@ button {
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+/* The buttons that sit in a row next to an input are smaller. Only the
+   ones that are a direct child of the row; the ones inside .actions keep the
+   size of a real button. */
+.row > button {
+  padding: 4px 9px;
+  font-size: 12px;
+  border-radius: 7px;
 }
 button.quiet {
   background: transparent;

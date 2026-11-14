@@ -1,3 +1,5 @@
+import { pairingLeft, remainingText } from './timing.mjs';
+
 (() => {
   const token = document.querySelector('meta[name="service-token"]')?.content || '';
   let current = null;
@@ -80,9 +82,10 @@
     const list = element(target);
     if (!list) return;
     list.replaceChildren();
-    for (const [name, value] of rows) {
+    for (const [name, value, cellId] of rows) {
       list.append(node('dt', null, name));
       const cell = node('dd');
+      if (cellId) cell.id = cellId;
       if (value instanceof Node) cell.append(value);
       else cell.textContent = value === undefined || value === null || value === '' ? '—' : String(value);
       list.append(cell);
@@ -361,16 +364,15 @@
       ['服务端口', mono(String(state.port ?? '—'))],
       ['手机端口', mono(String(state.phonePort ?? '—'))],
       ['Magpie 网关', mono(state.upstream || '—')],
-      ['配对码剩余时间', remainingText(pairingLeft(state))],
+      ['配对码剩余时间', remainingText(pairingLeft(state)), 'pairRemaining'],
       ['本插件的转发', forward.owned ? mono(`${forward.owned.publishedPort} → ${forward.owned.target}`) : '还没有记录'],
       ['配对记录', `${(state.paired || []).length} 条`],
     ]);
-    const gateway = element('gateway');
-    if (gateway && document.activeElement !== gateway) gateway.value = state.upstream || '';
     text(
       'portNote',
-      '端口是 Magpie 启动这个插件时给的参数，插件改不了自己听的端口，所以它不在这儿改。' +
-        '要换端口，在 Magpie 的插件设置里改（magpie plugin options magpie-page-token-widget \'{"port":8890}\'），' +
+      '端口和网关都是 Magpie 启动这个插件时给的参数：插件改不了自己听的端口，也改不了它去读的 Magpie，' +
+        '所以它们在这里只看不改。要换，在 Magpie 的插件设置里改' +
+        '（magpie plugin options magpie-page-token-widget \'{"port":8890,"gatewayURL":"http://127.0.0.1:3500"}\'），' +
         '改完重启 Magpie；手机那边的地址带着端口，换了端口手机要重新配对一次。'
     );
   };
@@ -440,23 +442,6 @@
     };
   };
 
-  // How long the pairing code is still good. The time is counted here, on
-  // the page, so that the numbers do not stand still while the page is open.
-  const pairingLeft = (state) => {
-    const until = Date.parse(state?.pairingExpiresAt || '');
-    if (!Number.isFinite(until)) return 0;
-    return Math.max(0, Math.round((until - Date.now()) / 1000));
-  };
-
-  // Under a minute the seconds are shown, so a code that is about to die does
-  // not look like a dead one.
-  const remainingText = (seconds) => {
-    const left = Math.max(0, Math.round(seconds || 0));
-    if (!left) return '已经作废';
-    if (left < 60) return `还剩 ${left} 秒`;
-    return `还剩 ${Math.floor(left / 60)} 分 ${left % 60} 秒`;
-  };
-
   const renderPairing = (state) => {
     const qr = element('qr');
     if (qr && state.qr) qr.src = state.qr;
@@ -468,9 +453,13 @@
       state.pairingBlocked
         ? `猜错的次数太多，配对先关上 ${blocked} 分钟。点「重新生成配对码」可以马上再开。`
         : state.pairingURL
-          ? `配对码只能用一次，十分钟后也会作废（${remainingText(pairingLeft(state))}）。手机装好组件后它会自动失效，再生成一个就能装第二台。`
+          ? '配对码只能用一次，十分钟后也会作废。手机装好组件后它会自动失效，再生成一个就能装第二台。'
           : 'Tailscale 没有连上，或者这台电脑没有尾网地址。手机和电脑要在同一个 Tailscale 里。'
     );
+    // The time left is written in its own place. The note above is shared by
+    // the copy button and by the errors, and it must not be overwritten every
+    // second.
+    text('pairCountdown', state.pairingBlocked ? '' : remainingText(pairingLeft(state)));
   };
 
   const render = (state) => {
@@ -524,21 +513,22 @@
   // run out, a new one is made without being asked for.
   setInterval(() => { void renewPairing(); }, 30000);
 
-  element('copyLink')?.addEventListener('click', () => copy(current?.pairingURL, '配对链接'));
-  element('saveGateway')?.addEventListener('click', async () => {
-    const value = element('gateway')?.value?.trim() || '';
-    try {
-      const result = await api('api/v1/console/options', {
-        method: 'POST',
-        body: JSON.stringify({ gatewayURL: value }),
-      });
-      current.upstream = result.upstream || value;
-      text('gatewayNote', '已经记下了，下一次读数就从这里拿。');
-      renderAdvanced(current);
-    } catch {
-      text('gatewayNote', '没有存上：网关只能是这台电脑上的 Magpie（http://127.0.0.1:3425）。');
-    }
+  // The time left on the code is counted here, on the page, so the numbers
+  // move while the page is open. Nothing is asked of the service, and the
+  // note above is left alone.
+  const tickCountdown = () => {
+    if (document.hidden || !current) return;
+    const left = pairingLeft(current);
+    text('pairCountdown', remainingText(left));
+    const cell = element('pairRemaining');
+    if (cell) cell.textContent = remainingText(left);
+  };
+  setInterval(tickCountdown, 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) tickCountdown();
   });
+
+  element('copyLink')?.addEventListener('click', () => copy(current?.pairingURL, '配对链接'));
   element('manualToken')?.addEventListener('click', async () => {
     const name = element('manualName')?.value?.trim() || '';
     try {

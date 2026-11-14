@@ -228,98 +228,24 @@ test('the temporary files of a run that was killed are swept away', async () => 
   }
 });
 
-test('the gateway of Magpie can be changed while the service runs', async () => {
-  const local = await tempDir();
-  const service = await start(local);
-  const consoleTokenOf = async () =>
-    JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
-  try {
-    const token = await consoleTokenOf();
-    const home = `http://127.0.0.1:${service.port}`;
-    for (let attempt = 0; attempt < 300; attempt += 1) {
-      const response = await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } });
-      if (response.status !== 503) break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    const changed = await post(home, '/api/v1/console/options', { gatewayURL: 'http://127.0.0.1:3999' }, { [TOKEN_HEADER]: token });
-    assert.equal(changed.status, 200);
-    assert.equal((await changed.json()).upstream, 'http://127.0.0.1:3999');
-    // Only the Magpie of this computer is allowed.
-    const refused = await post(home, '/api/v1/console/options', { gatewayURL: 'http://example.com' }, { [TOKEN_HEADER]: token });
-    assert.equal(refused.status, 400);
-    const shown = await (await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
-    assert.equal(shown.upstream, 'http://127.0.0.1:3999');
-    const saved = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8'));
-    assert.equal(saved.settings.gatewayURL, 'http://127.0.0.1:3999');
-  } finally {
-    await service.close();
-    await cleanup(local);
-  }
-});
-
-test('the gateway of Magpie is still there after the service starts again', async () => {
+test('the gateway of Magpie comes from the plugin option and nothing else', async () => {
   const local = await tempDir();
   const first = await start(local);
-  const token = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
-  await post(`http://127.0.0.1:${first.port}`, '/api/v1/console/options', { gatewayURL: 'http://127.0.0.1:3999' }, { [TOKEN_HEADER]: token });
   await first.close();
-  const second = await start(local);
+  // An old state file may still carry a gateway that an earlier version
+  // wrote down. It is not read any more: the plugin option is the only
+  // place the address comes from.
+  const file = path.join(local, 'state.json');
+  const saved = JSON.parse(await readFile(file, 'utf8'));
+  saved.settings.gatewayURL = 'http://127.0.0.1:3999';
+  await writeFile(file, JSON.stringify(saved, null, 2), 'utf8');
+  const second = await start(local, { gatewayURL: 'http://127.0.0.1:1' });
   try {
+    const token = JSON.parse(await readFile(file, 'utf8')).consoleToken;
     const shown = await (await fetch(`http://127.0.0.1:${second.port}/api/v1/console/state`, { headers: { [TOKEN_HEADER]: token } })).json();
-    assert.equal(shown.upstream, 'http://127.0.0.1:3999');
+    assert.equal(shown.upstream, 'http://127.0.0.1:1');
   } finally {
     await second.close();
-    await cleanup(local);
-  }
-});
-
-test('a gateway that is refused changes nothing at all', async () => {
-  const local = await tempDir();
-  const service = await start(local);
-  try {
-    const token = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
-    const home = `http://127.0.0.1:${service.port}`;
-    const before = await (await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
-    const refused = await post(home, '/api/v1/console/options', {
-      gatewayURL: 'http://example.com',
-      subscriptions: ['codex'],
-    }, { [TOKEN_HEADER]: token });
-    assert.equal(refused.status, 400);
-    const after = await (await fetch(home + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json();
-    // The choice of the subscriptions is untouched by the refused body.
-    assert.deepEqual(after.display.subscriptions, before.display.subscriptions);
-    assert.equal(after.upstream, before.upstream);
-  } finally {
-    await service.close();
-    await cleanup(local);
-  }
-});
-
-test('the gateway of Magpie may be written in several ways', async () => {
-  const local = await tempDir();
-  const service = await start(local);
-  try {
-    const token = JSON.parse(await readFile(path.join(local, 'state.json'), 'utf8')).consoleToken;
-    const home = `http://127.0.0.1:${service.port}`;
-    const written = {
-      'http://127.0.0.1:3999': 'http://127.0.0.1:3999',
-      'HTTP://127.0.0.1:3999': 'http://127.0.0.1:3999',
-      'http://127.0.0.1:3999/': 'http://127.0.0.1:3999',
-      'http://localhost:3999': 'http://localhost:3999',
-    };
-    for (const [value, expected] of Object.entries(written)) {
-      const answer = await post(home, '/api/v1/console/options', { gatewayURL: value }, { [TOKEN_HEADER]: token });
-      assert.equal(answer.status, 200, value);
-      assert.equal((await answer.json()).upstream, expected, value);
-    }
-    // The address of another computer is refused, and so is a name that only
-    // looks like this computer.
-    for (const value of ['http://example.com', 'http://127.0.0.1.evil.com', 'http://user:pass@127.0.0.1:3425', 'http://[::2]:3425']) {
-      const answer = await post(home, '/api/v1/console/options', { gatewayURL: value }, { [TOKEN_HEADER]: token });
-      assert.equal(answer.status, 400, value);
-    }
-  } finally {
-    await service.close();
     await cleanup(local);
   }
 });

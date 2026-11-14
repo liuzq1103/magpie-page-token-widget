@@ -14,7 +14,7 @@ The plugin page looks like this: the scan-to-pair block on top, and below it the
 
 - The plugin page shows a QR code. Scan it with the camera of the iPhone, let Safari open the pairing page, download the widget script, open it with Scriptable and add the widget to the home screen.
 - The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown, today's tokens, the last seven days and the rankings by vendor. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
-- The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed).
+- The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at).
 - Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
 - The service only reads the local API of Magpie, only opens on this computer, the phone comes in through the port forwarding of Tailscale, and the tokens stay in the directory of Magpie.
 
@@ -143,13 +143,13 @@ The plugin writes down the forwarding it made (the port and where it points) in 
 
 `tailscale serve --bg --tcp=8790` is a standing setting of Tailscale: it stays there when the plugin is removed or crashes. `tailscale serve status` shows what is published right now.
 
-The port is the address the plugin listens on when it starts, and the plugin cannot move itself, so it stays a startup parameter of Magpie. The gateway is a different matter, see the next section.
+The port and the gateway are both the addresses the plugin listens on when it starts, and the plugin cannot move itself, so they stay startup parameters of Magpie. To change either of them, change the plugin settings of Magpie:
 
-## The gateway
+`magpie plugin options magpie-page-token-widget '{"port":8890,"gatewayURL":"http://127.0.0.1:3500"}'`
 
-The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. If your Magpie listens on another port, change it in the plugin page under **Advanced settings**: the next reading comes from the new address, and neither Magpie nor the plugin has to be restarted.
+Then restart Magpie. The address the phone uses carries the port, so a new port means the phone has to be paired again.
 
-Only the Magpie of this computer is allowed (`127.0.0.1`, `localhost` or `[::1]`); any other address is refused, because this service must read nothing but the Magpie on this computer.
+The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. The **Advanced settings** of the console show where it reads from (that is all; they do not change it). A different gateway belongs in the plugin settings of Magpie: it only counts after Magpie has been restarted, and half-changing it in the console only leads to confusion.
 
 ## Compatibility
 
