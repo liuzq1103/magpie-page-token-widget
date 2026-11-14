@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.3.4 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.3.5 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -8,12 +8,12 @@ Installing it needs no install script, no Node.js and no scheduled task, and you
 
 > The numbers come from your own Magpie, and the script holds no key of its own. What the widget shows is still Magpie's own wording.
 
-The plugin page looks like this: the scan-to-pair block on top, and below it the state, the data update, the network, the device management, which subscriptions to show, and the advanced settings.
+The plugin page goes from top to bottom like this: the scan-to-pair block on top, and below it the state, the data update, the network, the device management, which subscriptions to show, and the advanced settings.
 
 ## What it does
 
 - The plugin page shows a QR code. Scan it with the camera of the iPhone, let Safari open the pairing page, download the widget script, open it with Scriptable and add the widget to the home screen.
-- The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown, today's tokens, the last seven days and the rankings by vendor. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
+- The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown and today's tokens; the last seven days and the rankings by vendor live on the usage page the widget opens. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
 - The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at).
 - Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
 - The service only reads the local API of Magpie. In the default mode (listening on this computer plus a Tailscale forward) the service opens on this computer only, the phone comes in through the forward of the tailnet, and the tokens stay in the directory of Magpie.
@@ -42,17 +42,17 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 4. Open the downloaded `UsageWidget.js` in the Files app and choose "Share → Open with Scriptable".
 5. Long press the home screen, add the Scriptable widget and pick `UsageWidget`.
 
-The pairing code works once and lives ten minutes at most: after that it is dead, and the plugin page makes a new one by itself (there is nothing to click), so the first pairing after the install needs no extra click. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
+The pairing code works once and lives ten minutes at most: after that it is dead, and the plugin page makes a new one by itself (there is nothing to click), so the first pairing after the install needs no extra click. The moment it is used, the old code is void. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
 
 There is no shared token any more. The one token that 0.1 gave to every phone is gone the moment the service is updated, so a phone that still holds it has to pair once more and get a token of its own.
 
-Guessing a code is not cheap: ten wrong tries at one code lock that code for five minutes. The lock follows the code, not the machine — behind the Tailscale forward every phone arrives as the loopback of this computer, so a lock per address would let anybody on the tailnet shut the pairing of everybody else. An `X-Forwarded-For` header can be written by anybody, so it is not believed.
+A pairing code cannot simply be guessed: ten wrong tries at one code lock that code for five minutes (the pairing page is a wider door — it takes thirty tries to lock). The lock follows the code, not the machine — behind the Tailscale forward every phone arrives as the loopback of this computer, so a lock per address would let anybody on the tailnet shut the pairing of everybody else. An `X-Forwarded-For` header can be written by anybody, so it is not believed.
 
 The service keeps one budget for the whole of it: a hundred wrong tries in five minutes, whichever code they were aimed at, and the pairing page, the widget script and the pairing door all close until the five minutes are up. Asking for a new pairing code at the computer empties that budget at once, so a person can open the door again without waiting. What really makes a code hard to guess is neither of those two doors: it has ninety-six bits of randomness, it lives ten minutes and it opens the door once.
 
-The script keeps the token in the keychain of Scriptable, and the three widgets of one iPhone share it.
+The script keeps the token in the keychain of Scriptable, and all the widgets of one iPhone share it (small, medium and large alike).
 
-Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js` (make a new script in Scriptable and paste it in). The service address may be a Tailscale address (`http://100.x.x.x:8791`), an address inside your own network (`http://192.168.1.50:8791`), or an HTTPS domain of your own (`https://my-server`). **A plain HTTP address out in the public internet is refused**; the rules are in "Three ways to connect" below.
+Without the code you can also use "Device management": give a phone a token of its own and put it, with the service address, into `scriptable/SetupUsageWidget.js` (make a new script in Scriptable and paste it in). The service address may be a Tailscale address (`http://100.x.x.x:8790`), an address inside your own network (`http://192.168.1.50:8791`), or an HTTPS domain of your own (`https://my-server`). **A plain HTTP address out in the public internet is refused**; the rules are in "Three ways to connect" below.
 
 ## Device management
 
@@ -62,7 +62,7 @@ The list holds every device that was paired: its name, when it was paired, when 
 
 The service does not read Magpie for every request of the phone. It keeps a snapshot that is good for a minute: a fresh snapshot is given right away, an old one triggers a reading, and all the requests that come at that moment share that one reading.
 
-A reader waits at most a few seconds: it gets the new numbers when they arrive, and the old ones marked as old when they do not, while the reading continues in the background.
+A reader waits at most a few seconds: when the numbers arrive in time they are served fresh; otherwise the old numbers go out marked as old while the reading keeps going in the background.
 
 How often the service reads on its own:
 
@@ -83,7 +83,7 @@ The page shows whether Tailscale is installed and connected, the address of this
 - **Peer relay**: there is no direct path, so another device of the tailnet carries the traffic.
 - **DERP**: Tailscale's own relay server carries the traffic; the slowest way, and the last way out. None of the three is a promise that the connection works — DERP is a fallback, not a guarantee.
 
-When the way cannot be read, the page says so instead of guessing. The button "diagnose" pings the phone once and writes down the answer; the service never pings on its own.
+When the way cannot be read, the page says so instead of guessing. The button "diagnose" pings the phone once and writes down the answer; the service never pings on its own, so it does not keep spawning Tailscale subprocesses.
 
 The network cards of this computer are listed as well: name, IPv4, IPv6, the length of the network part, and whether the card is Tailscale, Wi-Fi, wired or virtual. **These addresses are for the computer only; the phone API never gets them.** They are there to help: when the phone cannot be reached, look at the address of this computer in the LAN and at the address of the tailnet.
 
@@ -153,23 +153,23 @@ Without Tailscale, on one LAN only: the phone side opens a door on an address of
 
 Tapping the widget opens the usage page on the phone: the remaining quota of every subscription, today's tokens, the last seven days and the rankings by model, vendor and client, the same numbers the computer shows.
 
-The page opens with the read-only token of the widget. The token travels in the `#token=` part of the address and is wiped from there as soon as the page is open; Scriptable keeps it from then on. The page is served on the tailnet side only (on your own network, when you have written an address of your own), the console of the computer stays on this computer.
+The page opens with the read-only token of the widget. The token travels in the `#token=` part of the address and is wiped from there as soon as the page is open; the page keeps it in its own session storage from then on, and the widget keeps its own copy — it was the one that put the token into the address. The page is served on the tailnet side only (on your own network, when you have written an address of your own), the console of the computer stays on this computer.
 
 ## Widget parameter
 
 | Size | Shows | Widget Parameter |
 |---|---|---|
 | Small | one quota, the reset countdown, today's tokens | `codex` (default), `minimax`, `glm`; one account is written `codex@<account>`; `\|used` shows what is used |
-| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens; the weekly limit, when there is one, on the same line as the reset time (with 5–6 subscriptions in two rows only the 5-hour quota fits) | empty; `page=2` for the second page |
-| Large | up to 6 per page; two columns with the quota, the reset and the second window; today's and the last seven days | empty; `page=2` for the second page |
+| Medium | up to 6 per page; 1–4 side by side, 5–6 in two rows of three; today's tokens; the weekly limit, when there is one, on the same line as the reset time (with 5–6 subscriptions in two rows only the 5-hour quota fits) | empty; `page=2` for the second page; `\|used` turns every card into what is used |
+| Large | up to 6 per page; two columns with the quota, the reset and the second window; today's and the last seven days | empty; `page=2` for the second page; `\|used` turns every card into what is used |
 
-The account in a parameter is the account as it is called now. The console writes the parameters the widget understands next to every subscription, so one can be copied from there. When an account is renamed the parameter finds nothing, and the small widget is no longer empty: it shows the first card and writes "not found" next to it.
+The account in a parameter is the account's name as it is right now. The console writes the parameters the widget understands next to every subscription, so one can be copied from there. When an account is renamed the parameter finds nothing, and the small widget is no longer empty: it shows the first card and writes "not found" next to it.
 
 Every number says which way it is read: "remaining" or "used". The bar is the same ink in the light and in the dark (only the depth differs), so it is not read as a warning at night; only the number turns orange or red when the quota is nearly gone.
 
 ## Lifetime
 
-The service runs as long as Magpie runs. With Magpie closed, the phone keeps the last result it received. That is the trade of being a plugin, and it is not the same as the old service that stayed alive as a scheduled task.
+The service runs as long as Magpie runs. With Magpie closed, the phone keeps the last result it received. That is the trade-off of being a plugin, and it is not the same as the old service that stayed alive as a scheduled task.
 
 When Magpie stops or reloads the plugin, the plugin runs through its own cleanup: it closes the doors it opened and takes away the forward it built. When the process is killed there is no time for that, see "Uninstall" below.
 
@@ -193,9 +193,9 @@ The port and the gateway are both given to the plugin when Magpie starts it: the
 
 `magpie plugin options magpie-page-token-widget '{"port":8890,"gatewayURL":"http://127.0.0.1:3500"}'`
 
-Then restart Magpie. The address the phone uses carries the port, so a new port means the phone has to be paired again.
+Then restart Magpie. The address the phone uses carries the port, so a new port leaves the address stored on the phone stale — run the installer `scriptable/SetupUsageWidget.js` again with the new address (and the token). The token itself stays valid; the phone does not have to pair again.
 
-The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. **That gateway has to point at this computer** (`127.0.0.1`, `::1` or `localhost`): the plugin reads the Magpie of this computer only, and another address is refused outright (the console writes down why) instead of sending your requests to that other machine. The **Advanced settings** of the console show where it reads from (that is all; they do not change it). A different gateway belongs in the plugin settings of Magpie: it only counts after Magpie has been restarted, and half-changing it in the console only leads to confusion.
+The plugin reads Magpie's own local API, `http://127.0.0.1:3425` by default. **That gateway has to point at this computer** (`127.0.0.1`, `::1` or `localhost`): the plugin reads the Magpie of this computer only, and another address is refused outright (the console writes down why) instead of sending your requests to that other machine. The **Advanced settings** of the console show where it reads from (that is all; they do not change it). A different gateway belongs in the plugin settings of Magpie: it only counts after Magpie has been restarted — until then the console still shows the old address, which is easy to misread.
 
 ## Compatibility
 
@@ -222,7 +222,7 @@ tailscale serve --tcp=8790 off
 - The service only reads the local API of Magpie (`127.0.0.1:3425` by default, this computer only). It does not write the configuration of Magpie and does not touch the logins.
 - The tokens are random, read only and stay in the directory of Magpie; the service keeps only their hashes. There is no shared token: one token per phone, and revoking one stops that phone alone. Only the plugin page of this computer and the phone that carries a pairing code can get one.
 - The addresses of the LAN are only shown in the console of the computer; the phone API does not have them.
-- In the default (Tailscale) mode the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), the firewall has to let it through once, and that road is plain HTTP.
+- In the default (Tailscale) mode the service listens on this computer only (127.0.0.1); the phone comes in through the forwarding of Tailscale. There is no public entrance and no firewall rule is needed. Once you write an address of your own, the phone side opens a door on the address you chose (**the phone side only** — the console stays on this computer), and the firewall has to let it through once. Whether that road is plain depends on the address you wrote: with an HTTPS domain the leg from the phone to the proxy is encrypted (the leg from the proxy to the plugin is still plain HTTP), with an address inside your own network it is plain all the way.
 
 ## Development
 
