@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { pairingLeft, remainingText } from '../ui/timing.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const read = (file) => readFile(path.join(root, file), 'utf8');
+// The line endings of the checkout are not the same on every computer: a
+// page read on Windows ends its lines with CRLF. The tests look at the
+// lines, so they all read the same line endings.
+const read = async (file) => (await readFile(path.join(root, file), 'utf8')).replace(/\r\n/g, '\n');
 
 test('the time left on a pairing code is counted on the page', () => {
   const now = Date.parse('2026-01-01T00:00:00Z');
