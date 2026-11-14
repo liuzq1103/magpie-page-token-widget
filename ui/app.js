@@ -519,7 +519,8 @@ import { pairingLeft, remainingText } from './timing.mjs';
   const tickCountdown = () => {
     if (document.hidden || !current) return;
     const left = pairingLeft(current);
-    text('pairCountdown', remainingText(left));
+    // While the door is shut the line stays empty; the note next to it says why.
+    if (!current.pairingBlocked) text('pairCountdown', remainingText(left));
     const cell = element('pairRemaining');
     if (cell) cell.textContent = remainingText(left);
   };

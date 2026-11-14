@@ -41,6 +41,8 @@ test('the buttons that sit in a row are smaller', async () => {
   // Only the direct children of a row; the ones inside .actions keep their
   // size.
   assert.match(css, /\.row > button \{/);
+  // A plain ".row button" would also shrink the buttons in .actions.
+  assert.doesNotMatch(css, /\.row button \{/);
 });
 
 test('the countdown moves while the page is open', async () => {

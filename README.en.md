@@ -143,7 +143,7 @@ The plugin writes down the forwarding it made (the port and where it points) in 
 
 `tailscale serve --bg --tcp=8790` is a standing setting of Tailscale: it stays there when the plugin is removed or crashes. `tailscale serve status` shows what is published right now.
 
-The port and the gateway are both the addresses the plugin listens on when it starts, and the plugin cannot move itself, so they stay startup parameters of Magpie. To change either of them, change the plugin settings of Magpie:
+The port and the gateway are both given to the plugin when Magpie starts it: the port is the address the plugin listens on, the gateway is the Magpie the plugin reads from. The plugin cannot move itself, so they stay startup parameters of Magpie. To change either of them, change the plugin settings of Magpie:
 
 `magpie plugin options magpie-page-token-widget '{"port":8890,"gatewayURL":"http://127.0.0.1:3500"}'`
 

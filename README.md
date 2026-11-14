@@ -151,7 +151,7 @@ magpie plugin options magpie-page-token-widget '{"port":8890}'
 
 `tailscale serve --bg --tcp=8790` 是 Tailscale 里的长期设置：它留在那儿，插件被移除或崩溃都不会自己消失。想知道现在有哪些转发，看 `tailscale serve status`。
 
-端口和网关都是插件启动时听在哪儿的地址，插件自己搬不了家，所以它们留在 Magpie 的启动参数里。想换端口或网关，在 Magpie 的插件设置里改：
+端口和网关都是 Magpie 启动这个插件时给的参数：端口是插件自己听在哪儿的地址，网关是插件去读的那个 Magpie。插件自己搬不了家，所以它们留在 Magpie 的启动参数里。想换端口或网关，在 Magpie 的插件设置里改：
 
 `magpie plugin options magpie-page-token-widget '{"port":8890,"gatewayURL":"http://127.0.0.1:3500"}'`
 
