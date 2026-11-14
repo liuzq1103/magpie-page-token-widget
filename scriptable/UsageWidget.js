@@ -219,6 +219,21 @@ function text(parent, value, size, color, weight) {
   element.minimumScaleFactor = family === "small" ? 0.7 : 0.9;
   return element;
 }
+// The height of a line of a card. A Scriptable line is about 1.2 times its
+// font size; a little more is kept, so that a letter with a long tail is not
+// cut off.
+const LINE_HEIGHT = 1.25;
+// A line of a card with a height of its own. The height of a text is decided
+// by the letters it holds — a name that is scaled down to fit, a line that
+// holds nothing but a space — and a card whose line is shorter than the one
+// next to it puts its bar a little higher or lower than the others. A line
+// with a fixed height keeps every bar of a row on one level.
+function line(parent, size, width) {
+  const row = parent.addStack();
+  row.size = new Size(width, Math.round(size * LINE_HEIGHT));
+  row.centerAlignContent();
+  return row;
+}
 function compact(value) {
   if (value == null) return "—";
   if (value >= 1e9) return (value / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
@@ -387,7 +402,7 @@ function subscriptionGrid(parent, cards, sharedWindow) {
   // so the bars of the cards sit on one line; when no card has one, the line
   // is not given away at all — the smallest medium widget has 84 points for a
   // card, and every point is needed there.
-  const reserveAccountLine = !large && !dense && style.account > 0 && cards.some(card => splitLabel(card.label).account);
+  const reserveAccountLine = !dense && style.account > 0 && cards.some(card => splitLabel(card.label).account);
   // Every name of the page takes the size that fits the narrowest of them, so
   // the cards keep one title size.
   // The dense large family has no line of its own for the account, so it
@@ -410,19 +425,27 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       const inline = large && dense && parts.account;
       const accountSize = Math.max(7, Math.min(style.account || 9, nameSize - 3));
       const vendor = inline ? parts.vendor + " · " + parts.account : parts.vendor;
-      text(column, shortenName(vendor, inline ? accountSize : nameSize, cellWidth), inline ? accountSize : nameSize, colors.text, "medium");
+      // The line of the name has the same height for every card of the row.
+      // In the dense large family the name of a card that has an account goes
+      // with the account and is written smaller, but the line of it stays as
+      // tall as the others, so the bars of the row sit on one line.
+      const titleSize = large && dense ? nameSize : (inline ? accountSize : nameSize);
+      const titleRow = line(column, titleSize, cellWidth);
+      text(titleRow, shortenName(vendor, inline ? accountSize : nameSize, cellWidth), inline ? accountSize : nameSize, colors.text, "medium");
       if (parts.account && style.account && !inline) {
-        column.addSpacer(1);
-        text(column, shortenName(parts.account, accountSize, cellWidth), accountSize, colors.muted);
+        const accountRow = line(column, accountSize, cellWidth);
+        text(accountRow, shortenName(parts.account, accountSize, cellWidth), accountSize, colors.muted);
       } else if (reserveAccountLine) {
         // The medium family gives every card the same two lines of a title:
         // a card without an account keeps the line of the account empty, so
         // the bars of the cards sit on one line and can be read side by side.
-        column.addSpacer(1);
-        text(column, " ", accountSize, colors.muted);
+        // The line has a height of its own, so it does not matter how the
+        // phone measures the space inside it.
+        const emptyRow = line(column, accountSize, cellWidth);
+        text(emptyRow, " ", accountSize, colors.muted);
       }
       column.addSpacer(style.titleGap);
-      const valueRow = column.addStack(); valueRow.centerAlignContent();
+      const valueRow = line(column, style.value, cellWidth); valueRow.centerAlignContent();
       // A narrow cell has no room for the whole word, and the footer of the
       // widget says which way the numbers are read.
       const word = large || cellWidth >= 78 ? direction() : (showUsed ? "用" : "剩");

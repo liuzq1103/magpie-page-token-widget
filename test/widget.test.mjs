@@ -17,30 +17,80 @@ class FakeElement {
     this.lineLimit = 1;
     this.minimumScaleFactor = 1;
     this.imageSize = null;
+    this.text = null;
   }
 }
 
+// The stub keeps the tree as well as the words: the height of a line of a
+// card decides where the bar below it sits, and that is the thing this file
+// has something to say about.
 class FakeStack {
   constructor(log) {
     this.log = log;
     this.size = null;
+    this.children = [];
   }
   addText(value) {
     this.log.push(String(value));
-    return new FakeElement();
+    const element = new FakeElement();
+    element.text = String(value);
+    this.children.push({ type: 'text', element });
+    return element;
   }
   addStack() {
-    return new FakeStack(this.log);
+    const stack = new FakeStack(this.log);
+    this.children.push({ type: 'stack', stack });
+    return stack;
   }
   addImage() {
-    return new FakeElement();
+    const element = new FakeElement();
+    this.children.push({ type: 'image', element });
+    return element;
   }
-  addSpacer() {}
+  addSpacer(size = 0) {
+    this.children.push({ type: 'spacer', size });
+  }
   centerAlignContent() {}
   topAlignContent() {}
   layoutVertically() {}
   layoutHorizontally() {}
 }
+
+// The height of a piece of a card. A Scriptable line is about 1.2 times its
+// font size. A line that holds nothing but a space takes no room: a phone
+// measures it as it likes, and a card that leans on it leans with it.
+const LINE_HEIGHT = 1.2;
+const heightOf = node => {
+  if (node.type === 'text') {
+    const size = node.element.font && node.element.font.size ? node.element.font.size : 12;
+    return node.element.text && node.element.text.trim() ? Math.round(size * LINE_HEIGHT) : 0;
+  }
+  if (node.type === 'spacer') return node.size || 0;
+  if (node.type === 'image') return node.element.imageSize ? node.element.imageSize.height : 0;
+  if (node.type === 'stack') {
+    // A stack with a size of its own keeps it, whatever is inside it.
+    if (node.stack.size) return node.stack.size.height;
+    return node.stack.children.reduce((most, child) => Math.max(most, heightOf(child)), 0);
+  }
+  return 0;
+};
+
+// The height at which the bar of every card of the widget sits.
+const barLevels = (node, found = []) => {
+  if (node.type !== 'stack') return found;
+  const stack = node.stack;
+  const bar = stack.children.find(child => child.type === 'image');
+  if (bar) {
+    let level = 0;
+    for (const child of stack.children) {
+      if (child === bar) break;
+      level += heightOf(child);
+    }
+    found.push(level);
+  }
+  for (const child of stack.children) if (child.type === 'stack') barLevels(child, found);
+  return found;
+};
 
 class FakeSize {
   constructor(width, height) {
@@ -72,7 +122,7 @@ class FakeDrawContext {
   }
 }
 
-const overview = (display = {}) => ({
+const overview = (display = {}, cards = null) => ({
   schemaVersion: 1,
   generatedAt: Date.now(),
   display: { widgetMode: 'remaining', widgetCard: '', subscriptions: ['codex'], ...display },
@@ -85,7 +135,7 @@ const overview = (display = {}) => ({
     today: { totalTokens: 3500, input: 1000, output: 500, cacheRead: 2000, cacheWrite: 0, requests: 100 },
     week: { totalTokens: 10500, input: 4000, output: 2000, cacheRead: 4500, cacheWrite: 0, requests: 700 },
   },
-  subscriptions: [
+  subscriptions: cards || [
     {
       id: 'codex@alpha',
       provider: 'codex',
@@ -110,6 +160,7 @@ const runWidget = async ({
   cache = '',
 } = {}) => {
   const log = [];
+  const widgets = [];
   const calls = { setWidget: 0, complete: 0 };
   // What the script keeps after itself: the exchanges of the keychain are the
   // way back in when a token runs out.
@@ -134,19 +185,15 @@ const runWidget = async ({
       }),
     },
     Request: request,
-    ListWidget: class {
-      constructor() { this.log = log; }
-      addText(value) { log.push(String(value)); return new FakeElement(); }
-      addStack() { return new FakeStack(log); }
-      addImage() { return new FakeElement(); }
-      addSpacer() {}
+    ListWidget: class extends FakeStack {
+      constructor() { super(log); widgets.push(this); }
       setPadding() {}
     },
     DrawContext: FakeDrawContext,
     Size: FakeSize,
     Rect: FakeRect,
     Color: FakeColor,
-    Font: { systemFont: () => 'font', mediumSystemFont: () => 'font' },
+    Font: { systemFont: (size) => ({ size }), mediumSystemFont: (size) => ({ size, medium: true }) },
     config: { widgetFamily: 'medium', widgetParameter: '', runsInWidget: true, ...config },
     args: { widgetParameter: '', ...args },
     Device: { name: () => 'iPhone', model: () => 'iPhone', isUsingDarkAppearance: () => false },
@@ -158,7 +205,7 @@ const runWidget = async ({
     ? source.replace('let PAIRED = null;', `let PAIRED = ${JSON.stringify(paired)};`)
     : source;
   await vm.runInContext(`(async () => {\n${script}\n})();`, context);
-  return { log, calls, kept };
+  return { log, calls, kept, tree: widgets[0] };
 };
 
 // A request that fails. The response it leaves behind stands for the
@@ -545,10 +592,14 @@ class MeasuredStack {
   }
   height() {
     const heights = this.children.map(child => child.height());
-    if (!heights.length) return 0;
-    return this.vertical
-      ? heights.reduce((sum, value) => sum + value, 0)
-      : Math.max(...heights);
+    const content = !heights.length
+      ? 0
+      : this.vertical
+        ? heights.reduce((sum, value) => sum + value, 0)
+        : Math.max(...heights);
+    // A stack with a height of its own keeps it: a line whose height is
+    // pinned is as tall as it says, not as tall as the text inside it.
+    return this.size && this.size.height ? Math.max(content, this.size.height) : content;
   }
 }
 
@@ -667,4 +718,53 @@ test('a parameter that is a token says so instead of hunting for it', async () =
     args: { widgetParameter: 'a'.repeat(40) },
   });
   assert.ok(medium.log.some((line) => line.includes('参数里的令牌已忽略')), medium.log.join(' | '));
+});
+
+// The four cards of a real page: two accounts of one vendor, a vendor without
+// an account and a second one. The names are of different lengths and the
+// accounts are of different lengths too, which is what used to put the bars
+// of the cards on different lines.
+const realCards = () => {
+  const window = (label, used) => ({ label, usedPercent: used, remainingPercent: 100 - used, resetsAt: Date.now() + 3600000 });
+  // The cards are mixed on purpose: a card with an account of its own and a
+  // card without one stand next to each other, in the middle family as well
+  // as in the large one. A fixture that keeps the two kinds apart would let
+  // a row of one kind hide a card that sits a line too high.
+  return [
+    { id: 'minimax', provider: 'minimax', account: null, label: 'MiniMax', windows: [window('5h', 96)], usage: { today: { totalTokens: 282669693 } }, stale: false },
+    { id: 'codex@liuzq1103', provider: 'codex', account: 'liuzq1103', label: 'Codex · liuzq1103', windows: [window('5h', 100), window('7d', 18)], usage: { today: { totalTokens: 7171104 } }, stale: false },
+    { id: 'glm', provider: 'glm', account: null, label: 'GLM', windows: [window('5h', 7), window('7d', 40)], usage: { today: { totalTokens: 34228561 } }, stale: false },
+    { id: 'codex@fangzt98', provider: 'codex', account: 'fangzt98', label: 'Codex · fangzt98', windows: [window('5h', 11), window('7d', 95)], usage: { today: { totalTokens: 1077940 } }, stale: false },
+  ];
+};
+
+// The bars of the cards of the medium widget have to sit on one line. A card
+// whose name is longer, or that has no account of its own, must not push its
+// bar up or down: the four bars are read side by side.
+test('the bars of the cards of the medium widget sit on one line', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const run = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const levels = barLevels({ type: 'stack', stack: run.tree });
+  assert.equal(levels.length, 4, 'four cards, four bars');
+  assert.equal(new Set(levels).size, 1, 'the bars sit on one line, but they sit at ' + levels.join(', '));
+});
+
+// The same for the large widget: the cards are in two columns there, and the
+// bars of a row are read side by side as well.
+test('the bars of the cards of the large widget sit on one line', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const run = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
+  const levels = barLevels({ type: 'stack', stack: run.tree });
+  assert.equal(levels.length, 4, 'four cards, four bars');
+  // The large widget puts the cards in two rows of two. The bars of a row are
+  // read side by side, so they have to sit on one line; the rows themselves
+  // are of course not on one line.
+  assert.equal(levels[0], levels[1], 'the two cards of the first row are not on one line: ' + levels.join(', '));
+  assert.equal(levels[2], levels[3], 'the two cards of the second row are not on one line: ' + levels.join(', '));
 });
