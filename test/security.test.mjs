@@ -203,6 +203,86 @@ test('two phones get two tokens of their own', async () => {
   assert.doesNotMatch(JSON.stringify(body.devices), /"hash"/);
 });
 
+test('a revoked device can be taken off the list for good', async () => {
+  const file = path.join(dir, 'state.json');
+  const consoleToken = await consoleTokenOf(dir);
+  await waitForConsole(base, consoleToken);
+
+  // A phone of its own, so the other devices of this file are not touched.
+  await post(base, '/api/v1/console/pair', {}, { [TOKEN_HEADER]: consoleToken });
+  const paired = JSON.parse(await readFile(file, 'utf8'));
+  const phone = await post(base, '/api/v1/session', { code: paired.pairing.code, name: '要删掉的 iPhone' });
+  assert.equal(phone.status, 200);
+  const phoneBody = await phone.json();
+
+  const before = JSON.parse(await readFile(file, 'utf8'));
+  const others = before.devices.filter((device) => device.id !== phoneBody.device.id);
+  assert.ok(others.length >= 1);
+
+  // Revoked first: the token stops working, the row stays as a record.
+  // Before that, deleting is refused: the console has to say "this phone is
+  // stopped" before the row may go.
+  const tooEarly = await post(
+    base,
+    '/api/v1/console/device',
+    { id: phoneBody.device.id, action: 'delete' },
+    { [TOKEN_HEADER]: consoleToken }
+  );
+  assert.equal(tooEarly.status, 409);
+  const stillThere = JSON.parse(await readFile(file, 'utf8'));
+  assert.ok(stillThere.devices.find((device) => device.id === phoneBody.device.id));
+
+  const revoked = await post(
+    base,
+    '/api/v1/console/device',
+    { id: phoneBody.device.id, action: 'revoke' },
+    { [TOKEN_HEADER]: consoleToken }
+  );
+  assert.equal(revoked.status, 200);
+
+  // And now the row can go.
+  const deleted = await post(
+    base,
+    '/api/v1/console/device',
+    { id: phoneBody.device.id, action: 'delete' },
+    { [TOKEN_HEADER]: consoleToken }
+  );
+  assert.equal(deleted.status, 200);
+  const list = (await deleted.json()).devices;
+  assert.equal(list.find((device) => device.id === phoneBody.device.id), undefined);
+  // The other devices are still there, with their own tokens.
+  for (const device of others) {
+    assert.ok(list.find((entry) => entry.id === device.id));
+  }
+
+  // The file itself has forgotten it.
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.devices.find((device) => device.id === phoneBody.device.id), undefined);
+  assert.equal(after.devices.length, others.length);
+
+  // The token of the phone does not work, and it never comes back.
+  const answer = await fetch(base + '/api/v1/overview', {
+    headers: { Authorization: 'Bearer ' + phoneBody.token },
+  });
+  assert.equal(answer.status, 401);
+
+  // A device that is not there cannot be deleted twice.
+  const again = await post(
+    base,
+    '/api/v1/console/device',
+    { id: phoneBody.device.id, action: 'delete' },
+    { [TOKEN_HEADER]: consoleToken }
+  );
+  assert.equal(again.status, 404);
+
+  // The console is the only one who may do this.
+  const stranger = await post(base, '/api/v1/console/device', {
+    id: others[0].id,
+    action: 'delete',
+  });
+  assert.equal(stranger.status, 403);
+});
+
 test('the service starts again and the devices are still there', async () => {
   const file = path.join(dir, 'state.json');
   const before = JSON.parse(await readFile(file, 'utf8'));

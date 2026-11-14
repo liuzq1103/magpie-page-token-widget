@@ -35,65 +35,91 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
 }
 main {
-  max-width: 1120px;
+  max-width: 1000px;
   margin: 0 auto;
-  padding: 28px 20px 56px;
+  padding: 20px 18px 44px;
 }
-header {
-  margin-bottom: 20px;
-}
-h1 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 6px;
-}
-h2 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0 0 12px;
-}
-.lead {
-  margin: 0;
-  color: var(--muted);
-}
-.cards {
+
+/* One rail with the code, one sheet with everything else. The lists that
+   grow with the machine (the cards, the addresses) are folded away, so the
+   page stays the same length on a laptop and on a workstation. */
+.layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 14px;
+  grid-template-columns: 296px minmax(0, 1fr);
+  gap: 16px;
   align-items: start;
 }
-.cards .card {
-  margin-bottom: 0;
+@media (max-width: 880px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rail {
+    position: static;
+  }
 }
-.card {
+.rail {
+  position: sticky;
+  top: 20px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 18px;
-  margin-bottom: 14px;
+  padding: 15px 16px 12px;
+}
+.sheet {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 16px;
+}
+.sheet > section {
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+}
+.sheet > section:first-child {
+  border-top: 0;
+}
+.rail-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+h1 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 9px;
+}
+.lead {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .countdown {
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .qr {
   display: grid;
   place-items: center;
-  padding: 10px 0 4px;
+  padding: 6px 0 2px;
 }
 .qr img {
-  width: 190px;
-  height: 190px;
+  width: 180px;
+  height: 180px;
   image-rendering: pixelated;
   border-radius: 6px;
 }
 .qr.empty {
-  min-height: 120px;
+  min-height: 110px;
   border: 1px dashed var(--line);
   border-radius: 8px;
   color: var(--muted);
@@ -102,26 +128,37 @@ h2 {
 .center {
   text-align: center;
 }
+#pairingURL {
+  display: grid;
+  gap: 1px;
+  margin: 8px 0 0;
+}
+#pairingURL .code {
+  color: var(--fg);
+}
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11.5px;
   word-break: break-all;
 }
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
   justify-content: center;
-  margin-top: 14px;
+  margin-top: 12px;
+}
+.actions.left {
+  justify-content: flex-start;
 }
 button {
-  padding: 7px 13px;
+  padding: 6px 12px;
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--accent);
   color: var(--card);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 /* The buttons that sit in a row next to an input are smaller. Only the
@@ -139,63 +176,77 @@ button.quiet {
 }
 dl {
   display: grid;
-  grid-template-columns: minmax(96px, auto) 1fr;
-  gap: 8px 16px;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  gap: 6px 14px;
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 dt {
   color: var(--muted);
 }
 dd {
   margin: 0;
+  min-width: 0;
 }
 .checks {
   display: grid;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12.5px;
 }
+/* A row of the subscription list: the name on the left, the parameter of the
+   small widget on the right. */
 .checks label {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  padding: 5px 8px;
+  padding: 4px 8px;
   background: var(--soft);
   border-radius: 7px;
 }
 .checks input {
   accent-color: var(--accent);
+  margin: 0;
+}
+/* The ways of refreshing sit on one line: they are four names, not four
+   things to read. */
+.checks.inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.checks.inline label {
+  display: inline-flex;
+  padding: 3px 9px;
+}
+.checks .param {
+  justify-self: end;
 }
 ol {
   margin: 0;
-  padding-left: 20px;
-  font-size: 13px;
+  padding-left: 18px;
+  font-size: 12.5px;
   color: var(--fg);
 }
 .note {
-  margin: 12px 0 0;
+  margin: 9px 0 0;
   color: var(--muted);
-  font-size: 12px;
-}
-h3 {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  margin: 16px 0 6px;
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 .list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 .list .row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 9px;
   background: var(--soft);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 .list .row .note {
   margin: 0;
@@ -206,6 +257,9 @@ h3 {
   margin-left: auto;
   justify-content: flex-end;
 }
+.list .row.gone {
+  opacity: 0.62;
+}
 .tag {
   padding: 1px 7px;
   border: 1px solid var(--line);
@@ -215,14 +269,14 @@ h3 {
   white-space: nowrap;
 }
 .device-name {
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--card);
   color: var(--fg);
   font: inherit;
-  font-size: 13px;
-  min-width: 140px;
+  font-size: 12.5px;
+  min-width: 130px;
 }
 button.danger {
   background: transparent;
@@ -234,27 +288,31 @@ button.danger {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 .row.manual input {
-  padding: 6px 9px;
+  padding: 5px 9px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--card);
   color: var(--fg);
   font: inherit;
-  font-size: 13px;
-  min-width: 160px;
+  font-size: 12.5px;
+  min-width: 150px;
 }
 [data-theme="dark"] button.danger {
   color: #e29186;
   border-color: #4a3632;
 }
+details {
+  margin-top: 10px;
+}
 details summary {
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 600;
+  color: var(--muted);
 }
 details[open] summary {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }

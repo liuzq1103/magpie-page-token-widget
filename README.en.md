@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.3.5 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.0 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -8,13 +8,13 @@ Installing it needs no install script, no Node.js and no scheduled task, and you
 
 > The numbers come from your own Magpie, and the script holds no key of its own. What the widget shows is still Magpie's own wording.
 
-The plugin page goes from top to bottom like this: the scan-to-pair block on top, and below it the state, the data update, the network, the device management, which subscriptions to show, and the advanced settings.
+The plugin page has two columns. The left one holds the scan-to-pair block (the QR code, the pairing address, the countdown, the copy button) and the four steps "On the iPhone". The right one holds the state, the data update, which subscriptions to show, the device management, the network and the advanced settings. On a computer with a dozen network cards the three long lists — "the iPhones in the tailnet", "the network cards of this computer" and "where the phone can connect" — are folded away, and their lids say how many are in there.
 
 ## What it does
 
 - The plugin page shows a QR code. Scan it with the camera of the iPhone, let Safari open the pairing page, download the widget script, open it with Scriptable and add the widget to the home screen.
 - The widget shows the remaining quota of every subscription, the five-hour and the weekly window in percent, the reset countdown and today's tokens; the last seven days and the rankings by vendor live on the usage page the widget opens. The parameters pick the subscription (`codex`, `minimax`, `glm`, or `codex@<account>`), and can swap the percent for what is used (`\|used`).
-- The plugin page is a config centre with five blocks: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at).
+- The plugin page is in two columns: the QR code, the pairing address and the four steps "on the iPhone" on the left; on the right the state and five blocks of settings: **which subscriptions** (the cards the phone shows), **data update** (how often it reads), **network** (the state of the tailnet, the way the connection is made, the network cards of this computer), **device management** (the phones that are paired, each one revoked on its own; a revoked row can be deleted) and **advanced settings** (the port, the gateway, the other things that are rarely changed and only looked at). On a computer with many network cards the three long lists — the network cards, the phones in the tailnet and the addresses the phone may use — are folded away.
 - Tap the widget on the phone and Safari opens the usage page of the phone: the remaining quota of every subscription, today's tokens, the last seven days, the rankings by model, vendor and client, the same numbers the computer shows.
 - The service only reads the local API of Magpie. In the default mode (listening on this computer plus a Tailscale forward) the service opens on this computer only, the phone comes in through the forward of the tailnet, and the tokens stay in the directory of Magpie.
 
@@ -44,6 +44,8 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 
 The pairing code works once and lives ten minutes at most: after that it is dead, and the plugin page makes a new one by itself (there is nothing to click), so the first pairing after the install needs no extra click. The moment it is used, the old code is void. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
 
+Why a token at all, when the code was enough to pair? The code is the **door**: it opens once and is dead after ten minutes. The token is the **key** the phone picks up for itself, and it has to keep working. Scriptable cannot hold a cookie, so the phone has to carry a credential that stays valid every time it asks for the numbers; handing one token to each phone is what makes "stop that one" stop that one. Scanning your own code already proves that you are the one at the keyboard, so you never type a token: the phone swaps for one itself while it pairs, and the service keeps nothing but its fingerprint.
+
 There is no shared token any more. The one token that 0.1 gave to every phone is gone the moment the service is updated, so a phone that still holds it has to pair once more and get a token of its own.
 
 A pairing code cannot simply be guessed: ten wrong tries at one code lock that code for five minutes (the pairing page is a wider door — it takes thirty tries to lock). The lock follows the code, not the machine — behind the Tailscale forward every phone arrives as the loopback of this computer, so a lock per address would let anybody on the tailnet shut the pairing of everybody else. An `X-Forwarded-For` header can be written by anybody, so it is not believed.
@@ -56,7 +58,9 @@ Without the code you can also use "Device management": give a phone a token of i
 
 ## Device management
 
-The list holds every device that was paired: its name, when it was paired, when it was last seen and when it was revoked. Every entry can be renamed and revoked on its own. To add a phone, press "give this phone a token" and put the token that appears once into the phone.
+The list holds every device that was paired: its name, when it was paired, when it was last seen and when it was revoked. Every entry can be renamed and revoked on its own. **Revoking makes that token void at once and keeps the row as a record; a revoked row can then be deleted, and then it is gone from the list.** A phone that is still in use cannot be deleted straight away: revoke it first (revoking is the step that stops it), then delete it. The revoked rows sit at the bottom and are printed faint. To add a phone, press "give this phone a token" and put the token that appears once into the phone.
+
+The "pairing log" in the advanced settings is a book on this computer (when, who, from where — no token in it); deleting a device does not wipe that line out.
 
 ## Data update
 

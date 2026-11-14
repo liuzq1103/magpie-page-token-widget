@@ -25,18 +25,75 @@ test('the time left on a pairing code is counted on the page', () => {
   assert.equal(pairingLeft({ pairingExpiresAt: 'nonsense' }, now), 0);
 });
 
-test('the console uses the width of the window', async () => {
+test('the console is a rail and a sheet, and the long lists are folded', async () => {
   const page = await read('ui/index.html');
   const css = await read('ui/style.css');
-  assert.match(page, /<div class="cards">/);
-  assert.match(css, /max-width: 1120px/);
-  assert.match(css, /grid-template-columns: repeat\(auto-fit, minmax\(300px, 1fr\)\)/);
+  // One rail with the code, one sheet with everything else. The row of
+  // rounded cards is gone: a machine with a dozen network cards made the
+  // page longer than anybody wanted to scroll.
+  assert.match(page, /<aside class="rail">/);
+  assert.match(page, /<div class="sheet">/);
+  assert.doesNotMatch(page, /class="cards"/);
+  assert.match(css, /grid-template-columns: 296px minmax\(0, 1fr\)/);
   assert.match(css, /align-items: start/);
-  // Every card is inside the grid, and the grid is closed at the end.
-  const cards = page.split('<section class="card">').length - 1;
-  assert.equal(cards, 8);
-  assert.ok(page.indexOf('<div class="cards">') < page.indexOf('<section class="card">'));
-  assert.match(page, /<\/section>\n\s*<\/div>\n\s*<\/main>/);
+  // The rail follows the page when it is long.
+  assert.match(css, /\.rail \{\s*position: sticky;/);
+  // One column on a narrow window.
+  assert.match(css, /@media \(max-width: 880px\)/);
+  // The type is smaller than it was.
+  assert.match(css, /font: 13px\/1\.55/);
+  // The lists that grow with the machine are folded away, and the lid says
+  // how many are in there.
+  for (const id of ['peersSummary', 'interfacesSummary', 'bindSummary']) {
+    assert.match(page, new RegExp(`<summary id="${id}"`));
+  }
+  const script = await read('ui/app.js');
+  assert.match(script, /尾网里的 iPhone（\$\{list\.length\} 台）/);
+  assert.match(script, /这台电脑的网卡（\$\{list\.length\} 张）/);
+  assert.match(script, /手机可以从这里连（\$\{candidates\.length\} 个地址）/);
+});
+
+test('every piece of the page the script reaches for is on the page', async () => {
+  const page = await read('ui/index.html');
+  const script = await read('ui/app.js');
+  // The script looks a piece of the page up by its name and quietly does
+  // nothing when it is not there. A rewritten page that drops one name
+  // would blank that panel with no test saying so, so every name the
+  // script asks for has to be in the page.
+  const names = [...script.matchAll(/(?:element|text|fillFacts)\(\s*'([A-Za-z0-9_-]+)'/g)]
+    .map((match) => match[1]);
+  assert.ok(names.length >= 30, `only ${names.length} names found in the script`);
+  // A few names are not in the page because the script writes them itself
+  // (the cell of the countdown in the advanced settings). Those are the
+  // ones that close an array of a row.
+  const written = new Set([...script.matchAll(/'([A-Za-z0-9_-]+)'\s*\]/g)].map((match) => match[1]));
+  assert.ok(written.size <= 3, `${written.size} names are written by the script, that is a lot`);
+  for (const name of new Set(names)) {
+    if (written.has(name)) continue;
+    assert.match(page, new RegExp(`id="${name}"`), `the page has no #${name}`);
+  }
+});
+
+test('the parameter of the subscription sits on the right', async () => {
+  const script = await read('ui/app.js');
+  const css = await read('ui/style.css');
+  // The row is a grid: the name in the middle, the parameter of the small
+  // widget at the end.
+  assert.match(css, /\.checks label \{[^}]*display: grid;[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto;/);
+  assert.match(css, /\.checks \.param \{\s*justify-self: end;/);
+  assert.match(script, /hint\.className = 'tag param'/);
+});
+
+test('a device can be taken off the list', async () => {
+  const page = await read('ui/index.html');
+  const script = await read('ui/app.js');
+  // The console says why there is a token, and that the phone gets one by
+  // itself when it scans the code.
+  assert.match(page, /手机自己换到一枚只读的令牌/);
+  assert.match(page, /令牌是每台手机一枚/);
+  // A row can be deleted, not only revoked.
+  assert.match(script, /node\('button', 'danger', '删除'\)/);
+  assert.match(script, /action: 'delete'/);
 });
 
 test('the buttons that sit in a row are smaller', async () => {

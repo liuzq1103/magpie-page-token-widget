@@ -159,6 +159,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
     if (!list) return;
     list.replaceChildren();
     const candidates = external.candidates || [];
+    text('bindSummary', `手机可以从这里连（${candidates.length} 个地址）`);
     if (!candidates.length) {
       list.append(node('p', 'note', '没有找到这台电脑上可以给手机用的地址。'));
       return;
@@ -214,19 +215,13 @@ import { pairingLeft, remainingText } from './timing.mjs';
 
   const renderNetwork = (state) => {
     const tailnet = state.tailnet || {};
-    fillFacts('netFacts', [
-      ['Tailscale 是否安装', tailnet.installed ? '是' : '没有安装'],
-      ['Tailscale 是否连接', tailnet.connected ? `已连接（${tailnet.backendState || 'Running'}）` : `未连接（${tailnet.backendState || '未知'}）`],
-      ['本机尾网地址', mono(tailnet.tailnetIP || '—')],
-      ['MagicDNS 地址', mono(tailnet.dnsName || '—')],
-      ['本机连接路径', PATH_LABEL[tailnet.path] || PATH_LABEL.unknown],
-      ['手机入口', mono(state.serviceURL ? `${state.serviceURL}/` : '—')],
-    ]);
-
     const peers = element('peers');
     if (peers) {
       peers.replaceChildren();
       const list = tailnet.ios || [];
+      // The list of the phones of the tailnet is folded away; the number on
+      // the lid says how many are in there.
+      text('peersSummary', `尾网里的 iPhone（${list.length} 台）`);
       if (!list.length) {
         peers.append(node('p', 'note', '尾网里没有看到 iPhone。手机要和电脑在同一个 Tailscale 里。'));
       }
@@ -243,6 +238,9 @@ import { pairingLeft, remainingText } from './timing.mjs';
     if (interfaces) {
       interfaces.replaceChildren();
       const list = tailnet.interfaces || [];
+      // This list grows with the machine: a workstation has a dozen of them
+      // and a phone has none. It stays folded until somebody asks for it.
+      text('interfacesSummary', `这台电脑的网卡（${list.length} 张）`);
       if (!list.length) {
         interfaces.append(node('p', 'note', '没有读到这台电脑的网卡。'));
       }
@@ -273,13 +271,17 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const list = element('devices');
     if (!list) return;
     list.replaceChildren();
-    const devices = state.devices || [];
+    // The phones that are gone are put at the end, so the ones that still
+    // work are the first ones to be read.
+    const devices = [...(state.devices || [])].sort(
+      (one, other) => Number(Boolean(one.revokedAt)) - Number(Boolean(other.revokedAt))
+    );
     if (!devices.length) {
       list.append(node('p', 'note', '还没有手机配对过。'));
       return;
     }
     for (const device of devices) {
-      const row = node('div', 'row');
+      const row = node('div', device.revokedAt ? 'row gone' : 'row');
       const name = node('input');
       name.type = 'text';
       name.value = device.name || '';
@@ -313,6 +315,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
         }
       });
       actions.append(rename);
+      // Revoking stops the phone; the row stays, as a record of it.
       if (!device.revokedAt) {
         const revoke = node('button', 'danger', '撤销');
         revoke.type = 'button';
@@ -331,6 +334,28 @@ import { pairingLeft, remainingText } from './timing.mjs';
           }
         });
         actions.append(revoke);
+      } else {
+        // A revoked phone can be taken off the list for good. The server
+        // refuses to delete a phone that is still in use: revoking first is
+        // what stops it.
+        const remove = node('button', 'danger', '删除');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          const question = `把「${device.name}」这一行从名单里删掉？它已经被撤销了，删掉只是不再占地方。`;
+          if (!window.confirm(question)) return;
+          try {
+            const result = await api('api/v1/console/device', {
+              method: 'POST',
+              body: JSON.stringify({ id: device.id, action: 'delete' }),
+            });
+            if (current) current.devices = result.devices;
+            text('deviceNote', '已经删掉了。别的手机不受影响。');
+            renderDevices(current || {});
+          } catch {
+            text('deviceNote', '没有删掉，请再试一次。');
+          }
+        });
+        actions.append(remove);
       }
       row.append(actions);
       list.append(row);
@@ -405,16 +430,19 @@ import { pairingLeft, remainingText } from './timing.mjs';
       input.type = 'checkbox';
       input.value = subscription.id;
       input.checked = all || chosen.has(family) || chosen.has(subscription.id);
-      label.append(input, document.createTextNode(subscription.label || subscription.id));
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = subscription.label || subscription.id;
+      label.append(input, name);
       // The small widget is told which card to show with a parameter. The
       // names it understands are written here, so an old one (an account that
       // was renamed) can be seen and replaced.
       const names = [subscription.provider || subscription.id];
       if (subscription.account) names.push(subscription.id);
       const hint = document.createElement('span');
-      hint.className = 'tag';
+      hint.className = 'tag param';
       hint.textContent = '参数 ' + names.join(' / ');
-      label.append(document.createTextNode(' · '), hint);
+      label.append(hint);
       list.append(label);
     }
     list.onchange = async () => {
@@ -460,7 +488,20 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const qr = element('qr');
     if (qr && state.qr) qr.src = state.qr;
     if (qr && !state.qr) qr.closest('.qr')?.classList.add('empty');
-    text('pairingURL', state.pairingURL || '还没有找到 Tailscale 地址');
+    // The address is long and the rail is narrow: it is written in two
+    // lines, the address itself and the code behind it.
+    const url = element('pairingURL');
+    if (url) {
+      url.replaceChildren();
+      const value = state.pairingURL || '';
+      if (!value) {
+        url.textContent = '还没有找到 Tailscale 地址';
+      } else {
+        const cut = value.indexOf('/p/');
+        url.append(node('span', null, cut > 0 ? value.slice(0, cut) : value));
+        if (cut > 0) url.append(node('span', 'code', value.slice(cut)));
+      }
+    }
     const blocked = Math.max(0, Math.round((state.pairingBlocked || 0) / 60));
     text(
       'pairNote',
