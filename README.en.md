@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.3 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.4 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -152,6 +152,19 @@ Without Tailscale, on one LAN only: the phone side opens a door on an address of
 - That road is plain HTTP, and the token travels inside it.
 
 **How to shut it down for good**: press **"restore the Tailscale default"** in the "Network" part. That action empties the address you wrote, empties the network settings that were written down, **really closes the door of the LAN** (it is not only a change of the settings), and builds the Tailscale forward again. The console then writes down which way is in use now.
+
+## The security boundary
+
+Who may do what is decided by **the listener that took the connection**, not by a header the client can write.
+
+- **The console listens on 127.0.0.1 only.** No other machine, no other network card, no device of the tailnet reaches it; the console page carries the token of the service, and only this computer can open it.
+- **The phone side** (the listener of the tailnet, the door of the LAN, the connections that come through the forward) answers the phone and nothing else: the page of the phone, the pairing, the numbers. **There is no console on the phone side**: the console routes answer 403 there, and neither the page nor the script of the console is there.
+- `Host`, `Origin`, `X-Forwarded-Proto` and `X-Forwarded-Host` are things a client can write, so the plugin does not take them for a pass. `Host` only stops an address that was written down wrong: the console knows `127.0.0.1` / `localhost` and nothing else, and a forwarded header is never believed.
+- So a forged `Host: 127.0.0.1:8790` in the tailnet is of no use: that connection lands on the phone side and gets the page of the phone, not the console.
+- The forward of Tailscale points at the **port of the phone side**; the console stays on this computer.
+- Only the hash of a token is kept; the device management shows the name and the last visit, never the token itself.
+
+Tests keep these lines (in `test/boundary.test.mjs`): the forged Host, the access across the listeners, the console routes from the wrong side, the token that does not leak, and the pairing that still works.
 
 ## The page on the phone
 
