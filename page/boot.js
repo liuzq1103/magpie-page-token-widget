@@ -1,6 +1,11 @@
 // The Magpie window runs this page inside a sandboxed frame, so it cannot
 // fetch anything: the page only reads the theme and the service port, then
 // hands the whole window over to the service that runs on this computer.
+//
+// The port the plugin declares is the one the page falls back to; what
+// Magpie hands over wins.
+const DEFAULT_PORT = 8790;
+
 (async () => {
   const message = document.getElementById('message');
   const retry = document.getElementById('retry');
@@ -9,7 +14,7 @@
   try {
     const theme = await magpie.ready;
     const options = await magpie.options.get();
-    const port = Number(options?.port ?? 8790);
+    const port = Number(options?.port ?? DEFAULT_PORT);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('端口没有设置好。');
 
     // This computer's window: wails://localhost on macOS and Linux,

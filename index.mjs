@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
 import { startServer } from './lib/server.mjs';
-import { removeForwardSync } from './lib/forward.mjs';
+import { cleanupForward } from './lib/cleanup.mjs';
+import { DATA_DIR } from './lib/paths.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,18 +27,6 @@ async function shutdown() {
 // forwarding of Tailscale is a setting of Tailscale and would stay behind.
 // It is taken away here, and only when it still points where this plugin
 // left it: a forwarding of somebody else is never touched.
-export function cleanupForward(directory, runner) {
-  try {
-    if (!directory) return { ok: false, error: '没有数据目录。' };
-    const file = path.join(directory, 'token-widget', 'state.json');
-    const record = JSON.parse(readFileSync(file, 'utf8'))?.forward;
-    if (!record) return { ok: true, skipped: true };
-    return removeForwardSync(record.publishedPort, record, runner);
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error) };
-  }
-}
-
 function cleanupOnExit() {
   cleanupForward(directory);
 }
@@ -62,7 +50,7 @@ export default {
         await (await previous?.catch(() => null))?.close();
         return startServer({
           root,
-          dataDir: path.join(input.directory, 'token-widget'),
+          dataDir: path.join(input.directory, DATA_DIR),
           magpieDir: input.directory,
           options,
         });

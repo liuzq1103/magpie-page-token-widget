@@ -4,7 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import plugin, { cleanupForward } from '../index.mjs';
+import plugin from '../index.mjs';
+import { cleanupForward } from '../lib/cleanup.mjs';
+import { DATA_DIR } from '../lib/paths.mjs';
 import { tempDir, freePort, cleanup, mockTailscale } from './helpers.mjs';
 
 test('the service stops when the host asks it to stop', async () => {
@@ -44,9 +46,9 @@ test('a host that asks twice does not complain', async () => {
 test('the forwarding of the tailnet is taken away at the end of a run', async () => {
   const dir = await tempDir();
   try {
-    mkdirSync(path.join(dir, 'token-widget'), { recursive: true });
+    mkdirSync(path.join(dir, DATA_DIR), { recursive: true });
     writeFileSync(
-      path.join(dir, 'token-widget', 'state.json'),
+      path.join(dir, DATA_DIR, 'state.json'),
       JSON.stringify({
         forward: {
           publishedPort: 8790,
@@ -71,9 +73,9 @@ test('the forwarding of the tailnet is taken away at the end of a run', async ()
 test('a forwarding of somebody else is left alone', async () => {
   const dir = await tempDir();
   try {
-    mkdirSync(path.join(dir, 'token-widget'), { recursive: true });
+    mkdirSync(path.join(dir, DATA_DIR), { recursive: true });
     writeFileSync(
-      path.join(dir, 'token-widget', 'state.json'),
+      path.join(dir, DATA_DIR, 'state.json'),
       JSON.stringify({
         forward: {
           publishedPort: 8790,
@@ -99,8 +101,8 @@ test('a forwarding of somebody else is left alone', async () => {
 test('nothing is taken away when this plugin never made a forwarding', async () => {
   const dir = await tempDir();
   try {
-    mkdirSync(path.join(dir, 'token-widget'), { recursive: true });
-    writeFileSync(path.join(dir, 'token-widget', 'state.json'), JSON.stringify({}));
+    mkdirSync(path.join(dir, DATA_DIR), { recursive: true });
+    writeFileSync(path.join(dir, DATA_DIR, 'state.json'), JSON.stringify({}));
     const mock = mockTailscale();
     const answer = cleanupForward(dir, mock.runnerSync);
     assert.equal(answer.ok, true);
