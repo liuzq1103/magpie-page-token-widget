@@ -33,6 +33,11 @@ class FakeStack {
     // where its content stands, so that it does not lean on the default of
     // Scriptable.
     this.alignment = 'default';
+    // The colour behind a stack. The bar of a card is drawn with it.
+    this.backgroundColor = null;
+    // The way the stack lays its content out. A stack is horizontal unless it
+    // is told otherwise, the way Scriptable does it.
+    this.vertical = false;
   }
   addText(value) {
     this.log.push(String(value));
@@ -60,8 +65,8 @@ class FakeStack {
   }
   centerAlignContent() { this.alignment = 'center'; }
   topAlignContent() { this.alignment = 'top'; }
-  layoutVertically() {}
-  layoutHorizontally() {}
+  layoutVertically() { this.vertical = true; }
+  layoutHorizontally() { this.vertical = false; }
 }
 
 // The height of a piece of a card. A Scriptable line is about 1.2 times its
@@ -83,11 +88,12 @@ const heightOf = node => {
   return 0;
 };
 
-// The height at which the bar of every card of the widget sits.
+// The height at which the bar of every card of the widget sits. The bar is
+// drawn with the colour of the ground behind it, so that is how it is found.
 const barLevels = (node, found = []) => {
   if (node.type !== 'stack') return found;
   const stack = node.stack;
-  const bar = stack.children.find(child => child.type === 'image');
+  const bar = stack.children.find(child => child.type === 'stack' && child.stack.backgroundColor);
   if (bar) {
     let level = 0;
     for (const child of stack.children) {
@@ -95,6 +101,8 @@ const barLevels = (node, found = []) => {
       level += heightOf(child);
     }
     found.push(level);
+    // The ink of the bar is a stack of its own, and it is not another bar.
+    return found;
   }
   for (const child of stack.children) if (child.type === 'stack') barLevels(child, found);
   return found;
@@ -106,6 +114,21 @@ const allStacks = (stack, found = []) => {
   for (const child of stack.children) if (child.type === 'stack') allStacks(child.stack, found);
   return found;
 };
+
+// Every stack of the widget that has a colour of its own behind it, with the
+// stack it stands in. The bar of a card is drawn with such a colour: the
+// ground behind it, and the ink of the quota inside it.
+const colouredStacks = (stack, found = [], parent = null) => {
+  if (stack.backgroundColor) found.push({ stack, parent });
+  for (const child of stack.children) if (child.type === 'stack') colouredStacks(child.stack, found, stack);
+  return found;
+};
+
+// The bars of the cards of the widget: the ground of a bar has a colour of
+// its own, and the ink inside it has one too, so the ground is the coloured
+// stack whose own parent has no colour.
+const barsOf = tree => colouredStacks(tree).filter(entry =>
+  entry.stack !== tree && (!entry.parent || !entry.parent.backgroundColor));
 
 // The lines of the cards that hold a number, with the card they belong to.
 // The line of a number is the one that says how much of the quota is left.
@@ -134,9 +157,17 @@ class FakeRect {
 class FakeColor {
   constructor(value) {
     this.value = value;
+    // A colour that follows the appearance of the system is not the same
+    // thing as a colour that is picked here: the widget is drawn by the
+    // system, and a colour that is picked in the script is baked in with it.
+    this.dynamic = false;
   }
-  static dynamic(first) {
-    return first;
+  static dynamic(first, second) {
+    const colour = new FakeColor(first.value);
+    colour.dynamic = true;
+    colour.light = first.value;
+    colour.dark = second ? second.value : null;
+    return colour;
   }
 }
 
@@ -1017,4 +1048,209 @@ test('the word and the number fit on one line of a card', async () => {
         'the word and the number need ' + (wordWidth + 2 + numberWidth) + ' points, but the card is ' + cell + ' wide');
     }
   }
+});
+
+// The content of a card stands at the left of it. A line of a card is wider
+// than what it holds, and a stack that is wider than what it holds puts what
+// it holds in the middle of itself: that is why every name of the widget was
+// floating in the middle of its cell, and why the pair of the word and the
+// number was floating there too. A line that ends with a room of its own
+// keeps its text at the edge.
+test('the name of a card stands at the left of it', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const names = ['MiniMax', 'Codex', 'GLM'];
+  const lines = allStacks(tree).filter(stack => stack.children.some(child =>
+    child.type === 'text' && names.includes(String(child.element.text || ''))));
+  assert.equal(lines.length, 4, 'every card of the page shows its name');
+  for (const line of lines) {
+    const last = line.children[line.children.length - 1];
+    assert.equal(last.type, 'spacer', 'the line of the name ends with room for the rest of the card');
+    assert.equal(last.size, null, 'the room is flexible, so the name stands at the left');
+  }
+});
+
+// Every line of a card that holds one thing ends with room for the rest of
+// the card: the name of the card, the account under it, and the empty line
+// that keeps the cards of a row at the same height. The account was the one
+// the user saw floating in the middle of the cell of the middle widget.
+test('every line of a card that holds one thing ends with room', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const lines = allStacks(tree).filter(stack => {
+    const texts = stack.children.filter(child => child.type === 'text');
+    // A row of a card is a line that holds one thing. A column is not a line:
+    // what it holds stands at the left of it anyway.
+    return texts.length === 1 && !stack.vertical && stack.size && stack.size.width;
+  });
+  assert.ok(lines.length >= 8, 'every card has a line for its name and a line for its account: ' + lines.length);
+  for (const line of lines) {
+    const last = line.children[line.children.length - 1];
+    assert.equal(last.type, 'spacer', 'the line ends with room for the rest of the card');
+    assert.equal(last.size, null, 'the room is flexible, so the text stands at the left');
+  }
+});
+
+// The same for the pair of the word and the number: it stands at the left of
+// the card, under the name, and it is not in the middle of the cell. The
+// dense large family is the sixth card of a row: there the name of the
+// account goes with the name of the vendor, and the pair stands at the left
+// all the same.
+test('the word and the number stand at the left of the card', async () => {
+  const cards = realCards();
+  const dense = cards.concat(cards.slice(0, 2)).map((card, index) => ({
+    ...card,
+    id: card.id + '-' + index,
+    windows: card.windows.map((entry, at) => (at ? entry : { ...entry, label: (index + 2) + ' hours' })),
+  }));
+  for (const [family, page] of [['medium', cards], ['large', cards], ['large', dense]]) {
+    const { Request } = listening({
+      '/api/v1/overview': overview({ subscriptions: page.map(card => card.id) }, page),
+    });
+    const { tree } = await runWidget({ request: Request, config: { widgetFamily: family } });
+    const lines = numberLines(tree);
+    assert.equal(lines.length, page.length, 'every card of the ' + family + ' widget shows a number');
+    for (const line of lines) {
+      const last = line.children[line.children.length - 1];
+      assert.equal(last.type, 'spacer', 'the line of the number ends with room for the rest of the card');
+      assert.equal(last.size, null, 'the room is flexible, so the pair stands at the left');
+    }
+  }
+});
+
+// The small widget has a name and a number of its own, and they stand at the
+// left of the widget as well: the user photographed that widget too.
+test('the rows of the small widget stand at the left of it', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  const names = allStacks(tree).filter(stack => stack.children.some(child =>
+    child.type === 'text' && String(child.element.text || '') === 'MiniMax'));
+  assert.equal(names.length, 1, 'the small widget shows the name of one card');
+  const last = names[0].children[names[0].children.length - 1];
+  assert.equal(last.type, 'spacer', 'the line of the name ends with room for the rest of the widget');
+  assert.equal(last.size, null, 'the room is flexible, so the name stands at the left');
+  const lines = numberLines(tree);
+  assert.equal(lines.length, 1, 'the small widget shows the number of one card');
+  const end = lines[0].children[lines[0].children.length - 1];
+  assert.equal(end.type, 'spacer', 'the line of the number ends with room for the rest of the widget');
+  assert.equal(end.size, null, 'the room is flexible, so the pair stands at the left');
+});
+
+// The colours of a card follow the appearance of the system. The widget is
+// drawn by the system and not by the script, and the API that says whether
+// the system is in the dark appearance is not supported in a widget: a colour
+// that is picked in the script is baked in with it, and a card that is drawn
+// in the night appearance with the colours of the day one cannot be read.
+test('every colour of a card follows the appearance of the system', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
+  const colours = [];
+  const walk = node => {
+    if (node.type === 'text' && node.element.textColor) colours.push(node.element.textColor);
+    if (node.type === 'stack') {
+      if (node.stack.backgroundColor) colours.push(node.stack.backgroundColor);
+      node.stack.children.forEach(walk);
+    }
+  };
+  walk({ type: 'stack', stack: tree });
+  assert.ok(colours.length > 0, 'the card has colours of its own');
+  for (const colour of colours) {
+    assert.equal(colour.dynamic, true, 'a colour that is picked in the script is baked in with it');
+    // The two appearances do not have the same colour. A colour whose two
+    // sides were put in the wrong order would put the colours of the day on
+    // a card of the night.
+    assert.notEqual(colour.light, colour.dark, 'the colour of the day and the colour of the night are the same');
+  }
+});
+
+// The seven colours of the card, and the two appearances of each of them.
+// The tree cannot tell a pair that is put in the wrong order apart from a
+// pair that is right: both sides are different either way. So the pairs
+// themselves are read out of the script and compared with the ones that are
+// wanted.
+test('the colours of the card are the ones that are wanted', () => {
+  const wanted = {
+    bg: ['#ffffff', '#1f221e'],
+    text: ['#232523', '#ebeee7'],
+    muted: ['#8a8f85', '#92998d'],
+    track: ['#eef0eb', '#30362d'],
+    fill: ['#6b7268', '#8b9384'],
+    warning: ['#b77c36', '#d2a061'],
+    critical: ['#b35447', '#e09c88'],
+  };
+  const found = {};
+  for (const match of source.matchAll(/(\w+):\s*Color\.dynamic\(\s*new Color\("(#[0-9a-f]{6})"\),\s*new Color\("(#[0-9a-f]{6})"\)\s*\)/g)) {
+    found[match[1]] = [match[2], match[3]];
+  }
+  assert.deepEqual(found, wanted, 'the colours of the card are not the ones that are wanted');
+});
+
+// The bar of a card is drawn with the colours of the widget and not with a
+// canvas. A canvas bakes its colours in when it is drawn, and the script does
+// not know in which appearance the widget will be drawn: a bar that is drawn
+// on a canvas is a bar of the day appearance on a card of the night one.
+test('the bar of a card is drawn with the colours of the widget', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const bars = barsOf(tree);
+  assert.equal(bars.length, 4, 'every card of the page has a bar');
+  for (const bar of bars) {
+    // A quota that is used up has no ink in it: the ground is all there is.
+    assert.ok(bar.stack.children.length <= 2, 'the bar is a ground with the ink of the quota on it');
+    assert.equal(bar.stack.children.some(child => child.type === 'image'), false,
+      'the bar is not a picture: a picture bakes its colours in when it is drawn');
+    const ink = bar.stack.children.find(child => child.type === 'stack');
+    if (ink) {
+      assert.equal(ink.stack.backgroundColor.dynamic, true, 'the ink follows the appearance of the system');
+    }
+    const last = bar.stack.children[bar.stack.children.length - 1];
+    assert.equal(last.type, 'spacer', 'the bar ends with room, so that the ink stands at the left of it');
+    assert.equal(last.size, null, 'the room of the bar is flexible');
+  }
+  // The ground of the bar is the colour of the ground in both appearances.
+  const ground = bars[0].stack.backgroundColor;
+  assert.equal(ground.light, '#eef0eb', 'the ground of the bar in the day');
+  assert.equal(ground.dark, '#30362d', 'the ground of the bar in the night');
+});
+
+// The ink of the bar is as long as the quota that is left: a bar that is
+// always full, or a bar that is never full, says nothing about the quota.
+// The four cards of the fixture have 4%, 0%, 93% and 89% of their quota
+// left, and the one that is used up has no ink in it at all.
+test('the ink of the bar is as long as the quota that is left', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const bars = barsOf(tree);
+  assert.equal(bars.length, 4, 'every card of the page has a bar');
+  const left = [4, 0, 93, 89];
+  bars.forEach((bar, index) => {
+    const cell = bar.stack.size.width;
+    const ink = bar.stack.children.find(child => child.type === 'stack');
+    if (!left[index]) {
+      assert.equal(ink, undefined, 'a quota that is used up has no ink in it');
+      return;
+    }
+    assert.ok(ink, 'the bar of a quota that is left has ink in it');
+    const wanted = cell * left[index] / 100;
+    assert.ok(Math.abs(ink.stack.size.width - wanted) < 0.01,
+      'the ink of the bar is ' + ink.stack.size.width + ' points wide, but ' + left[index] + '% of ' + cell + ' is ' + wanted);
+  });
 });

@@ -55,18 +55,23 @@ const layout = {
   width: dimensions.width - 32, header: 20, footer: family === "large" ? 30 : 13,
   columnGap: family === "large" ? 16 : 10
 };
-const dark = Device.isUsingDarkAppearance();
+// The colours of the card follow the appearance of the system, and they have
+// to be dynamic to do it: the widget is drawn by the system, not by the
+// script, and the API that says whether the system is in the dark appearance
+// is not supported in a widget. A colour that is picked here is baked in
+// here, and a card that is drawn in the night appearance with the colours of
+// the day one is a card that cannot be read.
 const colors = {
   bg: Color.dynamic(new Color("#ffffff"), new Color("#1f221e")),
   text: Color.dynamic(new Color("#232523"), new Color("#ebeee7")),
   muted: Color.dynamic(new Color("#8a8f85"), new Color("#92998d")),
-  track: dark ? new Color("#30362d") : new Color("#eef0eb"),
+  track: Color.dynamic(new Color("#eef0eb"), new Color("#30362d")),
   // Ink in both appearances. A bright bar in the night mode was read as a
   // warning, and a warning that really means "plenty left" turns the reading
   // of the whole card upside down.
-  fill: dark ? new Color("#8b9384") : new Color("#6b7268"),
-  warning: new Color(dark ? "#d2a061" : "#b77c36"),
-  critical: new Color(dark ? "#e09c88" : "#b35447")
+  fill: Color.dynamic(new Color("#6b7268"), new Color("#8b9384")),
+  warning: Color.dynamic(new Color("#b77c36"), new Color("#d2a061")),
+  critical: Color.dynamic(new Color("#b35447"), new Color("#e09c88"))
 };
 const widget = new ListWidget();
 widget.backgroundColor = colors.bg;
@@ -238,6 +243,14 @@ function line(parent, size, width) {
   row.topAlignContent();
   return row;
 }
+// The content of a line stands at the left of the card. A stack that is wider
+// than what it holds puts what it holds in the middle of itself, so a line
+// that ends with a spacer of its own keeps its text at the edge: at the left,
+// under the name and above the number.
+function atLeft(row) {
+  row.addSpacer();
+  return row;
+}
 function compact(value) {
   if (value == null) return "—";
   if (value >= 1e9) return (value / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
@@ -357,17 +370,32 @@ function clock(value) {
   if (!value) return "未更新";
   return new Date(value).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
 }
+// The bar of a card: the ink on the left of it is what is left of the quota,
+// the ground behind it is what is used up. The bar is drawn with the colours
+// of the widget and not with a canvas, because a canvas bakes its colours in
+// when it is drawn, and the script does not know in which appearance the
+// widget will be drawn.
+const BAR_HEIGHT = 4;
 function bar(parent, window, width) {
-  const ctx = new DrawContext();
-  ctx.size = new Size(width, 4); ctx.opaque = false; ctx.respectScreenScale = true;
-  ctx.setFillColor(colors.track); ctx.fillRect(new Rect(0, 0, width, 4));
   const current = value(window);
+  const row = parent.addStack();
+  row.layoutHorizontally();
+  row.size = new Size(width, BAR_HEIGHT);
+  row.backgroundColor = colors.track;
   if (current != null) {
     const consumed = showUsed ? current : 100 - current;
-    ctx.setFillColor(consumed >= 90 ? colors.critical : consumed >= 75 ? colors.warning : colors.fill);
-    ctx.fillRect(new Rect(0, 0, width * Math.max(0, Math.min(100, current)) / 100, 4));
+    const filled = width * Math.max(0, Math.min(100, current)) / 100;
+    if (filled > 0) {
+      const fill = row.addStack();
+      fill.size = new Size(filled, BAR_HEIGHT);
+      fill.backgroundColor = consumed >= 90 ? colors.critical : consumed >= 75 ? colors.warning : colors.fill;
+    }
   }
-  const image = parent.addImage(ctx.getImage()); image.imageSize = new Size(width, 4);
+  // The ink of the bar stands at the left of it: the ground behind it is what
+  // is used up, and the ground has to begin where the card begins. A stack
+  // that is wider than what it holds puts what it holds in the middle of
+  // itself, and a bar whose ink floats in the middle of it says nothing.
+  row.addSpacer();
 }
 function header(status) {
   const row = widget.addStack(); row.centerAlignContent();
@@ -467,9 +495,11 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       const titleSize = large && dense ? nameSize : (inline ? accountSize : nameSize);
       const titleRow = line(column, titleSize, cellWidth);
       text(titleRow, shortenName(vendor, inline ? accountSize : nameSize, cellWidth), inline ? accountSize : nameSize, colors.text, "medium");
+      atLeft(titleRow);
       if (parts.account && style.account && !inline) {
         const accountRow = line(column, accountSize, cellWidth);
         text(accountRow, shortenName(parts.account, accountSize, cellWidth), accountSize, colors.muted);
+        atLeft(accountRow);
       } else if (reserveAccountLine) {
         // The medium family gives every card the same two lines of a title:
         // a card without an account keeps the line of the account empty, so
@@ -478,6 +508,7 @@ function subscriptionGrid(parent, cards, sharedWindow) {
         // phone measures the space inside it.
         const emptyRow = line(column, accountSize, cellWidth);
         text(emptyRow, " ", accountSize, colors.muted);
+        atLeft(emptyRow);
       }
       column.addSpacer(style.titleGap);
       // The word and the number are one line. The word stands in the middle of
@@ -491,8 +522,11 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       valueRow.addSpacer(NUMBER_GAP);
       text(valueRow, percent(primary), numberSize, accent(primary), "medium");
       if (!large && dense && !sharedWindow) {
-        // The window of the card stands at the right end of the row.
+        // The window of the card stands at the right end of the row, and the
+        // pair of the word and the number at the left of it.
         valueRow.addSpacer(); text(valueRow, windowLabel(primary), 8, colors.muted);
+      } else {
+        atLeft(valueRow);
       }
       column.addSpacer(style.barGap);
       bar(column, primary, cellWidth);
@@ -585,14 +619,18 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
       text(name, shortenName(looksLikeToken ? "参数里的是令牌：令牌不填在参数里" : "没有找到 " + requested, 8, Math.max(60, layout.width * 0.42)), 8, colors.warning);
     }
     else text(name, windowLabel(primary), 9, colors.muted);
+    // The name of the card and the window of it stand at the left of the
+    // widget, the way they do in the cards of the two larger families.
+    atLeft(name);
     widget.addSpacer(3);
     const value = widget.addStack();
     // The word stands in the middle of the number, the way it does in the
-    // cards of the two larger families.
+    // cards of the two larger families, and the pair stands at the left.
     value.centerAlignContent();
     text(value, direction(), 13, colors.muted);
     value.addSpacer(4);
     text(value, percent(primary), 34, accent(primary), "medium");
+    atLeft(value);
     widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
     text(widget, reset(primary), 9, colors.muted);
     if (card && card.windows[1]) {
