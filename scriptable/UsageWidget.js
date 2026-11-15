@@ -277,11 +277,11 @@ const NUMBER_GAP = 2;
 // the number does not have to be scaled down by Scriptable to fit.
 const NUMBER_FIT = 2;
 // The size of the number that stands beside the word in a cell of a given
-// width. The word is two Chinese characters, and the two of them have to fit
-// on one line: a card that is too narrow for the word and the whole number
-// takes a smaller number rather than a number that is cut off.
+// width. The word is one Chinese character, and it has to fit with the whole
+// number on one line: a card that is too narrow for the word and the whole
+// number takes a smaller number rather than a number that is cut off.
 function valueSize(width, wordSize, wanted) {
-  const room = width - 2 * wordSize - NUMBER_GAP - NUMBER_FIT;
+  const room = width - wordSize - NUMBER_GAP - NUMBER_FIT;
   return Math.max(12, Math.min(wanted, Math.floor(room / NUMBER_WIDTH)));
 }
 // The name of a card is shown in full: it takes the size that fits its cell.
@@ -300,8 +300,10 @@ function shortenName(label, size, width) {
   return label.slice(0, keep) + "…";
 }
 // The word in front of every number. Without it the bar and the number can
-// be read the wrong way round, and the night mode makes that worse.
-function direction() { return showUsed ? "已用" : "剩余"; }
+// be read the wrong way round, and the night mode makes that worse. It is
+// one character: the cards of the middle family are narrow, and every point
+// the word takes is a point the number gets.
+function direction() { return showUsed ? "用" : "剩"; }
 // The name of a card is the name of the vendor and, when it has one, the
 // account of it.
 function splitLabel(label) {
@@ -542,7 +544,7 @@ function subscriptionGrid(parent, cards, sharedWindow) {
         // of its own for it.
         if (secondary) {
           column.addSpacer(dense ? 2 : 3);
-          text(column, windowLabel(secondary) + (showUsed ? " 已用 " : " 剩余 ") + percent(secondary), style.secondary, accent(secondary));
+          text(column, windowLabel(secondary) + (showUsed ? " 用 " : " 剩 ") + percent(secondary), style.secondary, accent(secondary));
         }
       } else if (!dense) {
         // The medium family has one line for the reset and one line for the
@@ -634,7 +636,7 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
     text(widget, reset(primary), 9, colors.muted);
     if (card && card.windows[1]) {
-      widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 已用 " : " 剩余 ") + percent(card.windows[1]), 9, colors.muted);
+      widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 用 " : " 剩 ") + percent(card.windows[1]), 9, colors.muted);
     }
     widget.addSpacer();
     // The tokens of the subscription this widget shows, not the total of all.

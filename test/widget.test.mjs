@@ -588,7 +588,7 @@ test('the widget shows the numbers of the plugin page', async () => {
   };
   const used = await runWidget({ request: answering });
   assert.equal(used.calls.setWidget, 1);
-  assert.ok(used.log.some(line => line.includes('已用')), used.log.join(' | '));
+  assert.ok(used.log.some(line => line.trim() === '用'), used.log.join(' | '));
 
   const remaining = await runWidget({
     request: class {
@@ -596,8 +596,8 @@ test('the widget shows the numbers of the plugin page', async () => {
       async loadJSON() { return overview(); }
     },
   });
-  assert.ok(remaining.log.some(line => line.includes('剩余')), remaining.log.join(' | '));
-  assert.ok(!remaining.log.some(line => line.includes('已用')), remaining.log.join(' | '));
+  assert.ok(remaining.log.some(line => line.trim() === '剩'), remaining.log.join(' | '));
+  assert.ok(!remaining.log.some(line => line.trim() === '用'), remaining.log.join(' | '));
 });
 
 // A world that measures. A line of text is as tall as its writing and a
@@ -746,14 +746,77 @@ test('the card of the medium widget fits a phone with room to spare', async () =
   );
 });
 
+// The four cards of the medium family are the tightest layout of the widget:
+// the cells are narrow, the number is as big as the cell allows, and the
+// card has to live inside the body of the widget. The phones are the ones the
+// project measured on: the smallest SE, the SE 2 and 3, the 12 mini, the 14,
+// the 15 and the 16 Pro. Five points of room are asked for: the lines are
+// pinned by the script, but the writing inside them is measured by the phone,
+// and a card that is cut off says less than a card with smaller writing.
+test('the four cards of the medium widget fit on every phone', async () => {
+  const cards = realCards();
+  for (const screen of [[320, 568], [375, 667], [375, 812], [390, 844], [402, 874], [430, 932]]) {
+    const data = overview({ subscriptions: cards.map(card => card.id) }, cards);
+    const widget = await runMeasured({ screen, data });
+    const body = widget.children.find(
+      child => child instanceof MeasuredStack && child.vertical && child.size && child.size.height,
+    );
+    assert.ok(body, 'the body of the widget is there');
+    const grid = body.children.find(child => child instanceof MeasuredStack);
+    assert.ok(grid, 'the cards are in the body');
+    const room = body.size.height - grid.height();
+    assert.ok(
+      room >= 5,
+      `the four cards are ${grid.height().toFixed(1)} points tall on ${screen.join('x')}, `
+      + `the body is ${body.size.height}, ${room.toFixed(1)} points are left`,
+    );
+  }
+});
+
+// The word in front of the number is one character, and the room it gives up
+// goes to the number: the number of a narrow card is bigger than it was. The
+// size is pinned here, so a change that takes the room away again is caught:
+// with the two characters the number of the four cards was 13 points on the
+// smallest phone and 17 on the 12 mini.
+test('the number of a narrow card is as big as the room of the cell allows', async () => {
+  const cards = realCards();
+  const wanted = { '320x568': 17, '375x812': 20 };
+  for (const [phone, size] of Object.entries(wanted)) {
+    const data = overview({ subscriptions: cards.map(card => card.id) }, cards);
+    const widget = await runMeasured({ screen: phone.split('x').map(Number), data });
+    const numbers = [];
+    const walk = stack => {
+      for (const child of stack.children || []) {
+        if (!(child instanceof MeasuredStack)) continue;
+        // The line of the number: the word, a space, the number and a room of
+        // its own. The word of the medium family is 9 points, and the number
+        // is bigger than the word; the sentence at the foot of the widget
+        // holds two words of 9 points and no number.
+        const children = child.children || [];
+        if (children.length >= 3
+          && children[0] && children[0].font && children[0].font.size === 9
+          && children[2] && children[2].font && children[2].font.size > 9) {
+          numbers.push(children[2].font.size);
+        }
+        walk(child);
+      }
+    };
+    walk(widget);
+    assert.equal(numbers.length, 4, 'the four cards of the widget show a number');
+    for (const number of numbers) {
+      assert.equal(number, size, 'the number of the four cards on ' + phone);
+    }
+  }
+});
+
 test('the parameter of the phone still wins over the plugin page', async () => {
   const answering = class {
     constructor() { this.response = { statusCode: 200 }; }
     async loadJSON() { return overview({ widgetMode: 'used' }); }
   };
   const overridden = await runWidget({ request: answering, args: { widgetParameter: 'remaining' } });
-  assert.ok(overridden.log.some(line => line.includes('剩余')), overridden.log.join(' | '));
-  assert.ok(!overridden.log.some(line => line.includes('已用')), overridden.log.join(' | '));
+  assert.ok(overridden.log.some(line => line.trim() === '剩'), overridden.log.join(' | '));
+  assert.ok(!overridden.log.some(line => line.trim() === '用'), overridden.log.join(' | '));
 });
 
 test('a parameter that is a token says so instead of hunting for it', async () => {
@@ -917,7 +980,7 @@ test('the word in front of the number stands in the middle of the number', async
     assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
     const [word, gap, number] = line.children;
     assert.equal(word.type, 'text', 'the line begins with the word');
-    assert.equal(String(word.element.text), '剩余', 'the word is in front of the number');
+    assert.equal(String(word.element.text), '剩', 'the word is in front of the number');
     assert.equal(gap.type, 'spacer');
     assert.equal(gap.size, 2, 'the gap between the word and the number');
     assert.equal(number.type, 'text');
@@ -938,7 +1001,7 @@ test('the word and the number of a card of the medium widget are on one line', a
   for (const line of lines) {
     assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
     assert.equal(line.children[0].type, 'text', 'the line begins with the word');
-    assert.equal(String(line.children[0].element.text), '剩余');
+    assert.equal(String(line.children[0].element.text), '剩');
     assert.equal(line.children[1].type, 'spacer');
     assert.equal(line.children[1].size, 2);
     assert.equal(line.children[2].type, 'text');
@@ -963,7 +1026,7 @@ test('the word and the number of a dense card are on one line', async () => {
   for (const line of lines) {
     assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
     assert.equal(line.children[0].type, 'text', 'the line begins with the word');
-    assert.equal(String(line.children[0].element.text), '剩余');
+    assert.equal(String(line.children[0].element.text), '剩');
     assert.equal(line.children[1].type, 'spacer');
     assert.equal(line.children[1].size, 2);
     assert.equal(line.children[2].type, 'text');
@@ -989,7 +1052,7 @@ test('the word of the small widget stands in the middle of the number', async ()
   const line = lines[0];
   assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
   assert.equal(line.children[0].type, 'text', 'the line begins with the word');
-  assert.equal(String(line.children[0].element.text), '剩余');
+  assert.equal(String(line.children[0].element.text), '剩');
   assert.equal(line.children[1].type, 'spacer');
   assert.equal(line.children[1].size, 4, 'the gap between the word and the number');
   assert.equal(line.children[2].type, 'text');
@@ -1002,9 +1065,11 @@ test('the word of the small widget stands in the middle of the number', async ()
   assert.ok(number.font.size > word.font.size, 'the number is the taller of the two');
 });
 
-// The word in front of the number is the same word in every family. The
-// narrow card of the middle family used to write one character of it, so the
-// same number looked like two different things.
+// The word in front of the number is the same word in every family, and it
+// is one character: the cards of the middle family are narrow, and every
+// point the word takes is a point the number gets. The narrow card of the
+// middle family used to write one character of it while the others wrote
+// the whole word, so the same number looked like two different things.
 test('the word in front of the number is the same word in every family', async () => {
   const cards = realCards();
   for (const family of ['small', 'medium', 'large']) {
@@ -1018,14 +1083,19 @@ test('the word in front of the number is the same word in every family', async (
       if (node.type === 'stack') node.stack.children.forEach(walk);
     };
     walk({ type: 'stack', stack: tree });
-    assert.ok(words.includes('剩余'), 'the ' + family + ' widget writes the whole word');
-    assert.ok(!words.includes('剩'), 'the ' + family + ' widget does not write one character of it');
-    assert.ok(!words.includes('用'), 'the ' + family + ' widget does not write one character of it');
+    // The word in front of the number, and not the sentence at the foot of
+    // the widget: that one says what the numbers are about.
+    const lines = numberLines(tree);
+    assert.ok(lines.length > 0, 'the ' + family + ' widget shows a number');
+    for (const line of lines) {
+      assert.equal(String(line.children[0].element.text), '剩', 'the ' + family + ' widget writes the word');
+    }
+    assert.ok(!words.includes('用'), 'the ' + family + ' widget does not write the other word');
   }
 });
 
-// The word and the number have to fit on one line of a card: the word is two
-// Chinese characters, and the number is written as big as the room that is
+// The word and the number have to fit on one line of a card: the word is one
+// Chinese character, and the number is written as big as the room that is
 // left allows. The cards of the middle and the large family are narrow; the
 // small widget is a column with room to spare.
 test('the word and the number fit on one line of a card', async () => {
@@ -1040,12 +1110,15 @@ test('the word and the number fit on one line of a card', async () => {
     for (const line of lines) {
       const word = line.children[0].element;
       const number = line.children[2].element;
-      const wordWidth = 2 * word.font.size;
+      const wordWidth = word.font.size;
       // The widest number is "100%": three digits and a sign.
       const numberWidth = (3 * 0.58 + 0.85) * number.font.size;
       const cell = line.parent.size.width;
-      assert.ok(wordWidth + 2 + numberWidth <= cell + 0.01,
-        'the word and the number need ' + (wordWidth + 2 + numberWidth) + ' points, but the card is ' + cell + ' wide');
+      // Two points of air between the word and the number, and two more that
+      // the script keeps for itself, so that the number is not cut off.
+      const needed = wordWidth + 2 + 2 + numberWidth;
+      assert.ok(needed <= cell + 0.01,
+        'the word and the number need ' + needed + ' points, but the card is ' + cell + ' wide');
     }
   }
 });

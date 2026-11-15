@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.10 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.11 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -215,7 +215,7 @@ The three reasons are told apart now:
 
 The old version had only two messages: "令牌无效，请重新设置" for a token the service did not know, and "离线缓存" for everything else (a service that answered with an error, a service that was gone) — which looked like everything was fine while the service had long stopped answering. An even older version had another trap: when the Keychain held a token the service no longer knew, the script skipped the "exchange the pairing code for a token" step every time, and pairing again or downloading the script again could not fix it — the Keychain had to be cleaned by hand first. Now the script **tries the exchange first** whenever it carries a fresh pairing code, and falls back to the token it has only when that fails; when the exchange works, the service is asked to take the row of the old token off the list (the row is really gone when the service answers). The new token is written down before the old row is cleaned up — the code works once, so a phone that is closed in between must not lose the token it just got.
 
-Every number says which way it is read: "remaining" or "used". The bar is the same ink in the light and in the dark (only the depth differs), so it is not read as a warning at night; only the number turns orange or red when the quota is nearly gone.
+Every number says which way it is read, in one character: 「剩」 (what is left) or 「用」 (what is used). The cards are narrow, and the room the word gives up goes to the number. The bar is the same ink in the light and in the dark (only the depth differs), so it is not read as a warning at night; only the number turns orange or red when the quota is nearly gone.
 
 ## Lifetime
 
