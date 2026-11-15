@@ -231,6 +231,11 @@ const LINE_HEIGHT = 1.25;
 function line(parent, size, width) {
   const row = parent.addStack();
   row.size = new Size(width, Math.round(size * LINE_HEIGHT));
+  // The content of a line stands at the top of it. The default of Scriptable
+  // is the top as well, but a line that says so itself does not change when
+  // the default does, and a name that hangs in the middle of its own line
+  // reads as if it belonged to the number below it.
+  row.topAlignContent();
   return row;
 }
 function compact(value) {
@@ -247,6 +252,24 @@ function nameWidth(value) {
     char.codePointAt(0) >= 0x2e80 ? 1 : /[MW%]/.test(char) ? 0.85 :
       /[il: .·]/.test(char) ? 0.28 : /\d/.test(char) ? 0.58 : 0.56
   ), 0);
+}
+// The width of the widest number ("100%") in the system font, as a multiple
+// of its size.
+const NUMBER_WIDTH = nameWidth("100%");
+// The room that is kept aside between the word and the number.
+const NUMBER_GAP = 2;
+// The number is written in the medium weight of the system font, and the
+// table of widths was measured in the regular one: the digits of the medium
+// weight are a little wider. These points are kept aside for that, so that
+// the number does not have to be scaled down by Scriptable to fit.
+const NUMBER_FIT = 2;
+// The size of the number that stands beside the word in a cell of a given
+// width. The word is two Chinese characters, and the two of them have to fit
+// on one line: a card that is too narrow for the word and the whole number
+// takes a smaller number rather than a number that is cut off.
+function valueSize(width, wordSize, wanted) {
+  const room = width - 2 * wordSize - NUMBER_GAP - NUMBER_FIT;
+  return Math.max(12, Math.min(wanted, Math.floor(room / NUMBER_WIDTH)));
 }
 // The name of a card is shown in full: it takes the size that fits its cell.
 // A name that does not fit even at the smallest size is shortened, and the
@@ -457,24 +480,19 @@ function subscriptionGrid(parent, cards, sharedWindow) {
         text(emptyRow, " ", accountSize, colors.muted);
       }
       column.addSpacer(style.titleGap);
-      const valueRow = line(column, style.value, cellWidth);
-      // The word in front of the number and the number itself are one group:
-      // the number is written in a big font, so the group stands in the middle
-      // of the card and the word stays on the left of the number.
-      valueRow.addSpacer();
-      // A narrow cell has no room for the whole word, and the footer of the
-      // widget says which way the numbers are read.
-      const word = large || cellWidth >= 78 ? direction() : (showUsed ? "用" : "剩");
-      text(valueRow, word, large ? 12 : 9, colors.muted);
-      valueRow.addSpacer(2);
-      text(valueRow, percent(primary), style.value, accent(primary), "medium");
+      // The word and the number are one line. The word stands in the middle of
+      // the number, so that the two are read as one thing, and the pair
+      // stands at the left of the card, under the name.
+      const wordSize = large ? 12 : 9;
+      const numberSize = valueSize(cellWidth, wordSize, style.value);
+      const valueRow = line(column, numberSize, cellWidth);
+      valueRow.centerAlignContent();
+      text(valueRow, direction(), wordSize, colors.muted);
+      valueRow.addSpacer(NUMBER_GAP);
+      text(valueRow, percent(primary), numberSize, accent(primary), "medium");
       if (!large && dense && !sharedWindow) {
-        // The window of the card stands at the right end of the row, and the
-        // group keeps the middle of what is left of it.
+        // The window of the card stands at the right end of the row.
         valueRow.addSpacer(); text(valueRow, windowLabel(primary), 8, colors.muted);
-      } else {
-        // The other half of the room: the group is in the middle of the card.
-        valueRow.addSpacer();
       }
       column.addSpacer(style.barGap);
       bar(column, primary, cellWidth);
@@ -556,6 +574,8 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
     const name = widget.addStack();
+    // The name of a card stands at the top of its line, in every family.
+    name.topAlignContent();
     const title = fitName(card ? card.label : "暂无该套餐", 12, layout.width - 60);
     text(name, title.label, title.size, colors.text, "medium");
     name.addSpacer(4);
@@ -567,6 +587,9 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     else text(name, windowLabel(primary), 9, colors.muted);
     widget.addSpacer(3);
     const value = widget.addStack();
+    // The word stands in the middle of the number, the way it does in the
+    // cards of the two larger families.
+    value.centerAlignContent();
     text(value, direction(), 13, colors.muted);
     value.addSpacer(4);
     text(value, percent(primary), 34, accent(primary), "medium");

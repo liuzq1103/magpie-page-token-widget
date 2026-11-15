@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.6 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.9 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -41,6 +41,8 @@ From a checkout: `magpie plugin add ./magpie-page-token-widget`.
 3. Scan the code with the camera of the iPhone, open the page in Safari and download the widget script.
 4. Open the downloaded `UsageWidget.js` in the Files app and choose "Share → Open with Scriptable".
 5. Long press the home screen, add the Scriptable widget and pick `UsageWidget`.
+
+The widget script is downloaded once and then lives on the phone; a new version on the server does not travel to it by itself. **After a new version, run the installer (`SetupUsageWidget.js`) again in Scriptable — it remembers the address and the token, and it overwrites the script on the phone with the newest one.**
 
 The pairing code works once and lives ten minutes at most: after that it is dead, and the plugin page makes a new one by itself (there is nothing to click), so the first pairing after the install needs no extra click. The moment it is used, the old code is void. **Every phone that pairs gets a read-only token of its own.** The service keeps only the hash of that token; the plain text is handed over exactly once, at the moment of pairing, and never again. Revoking one phone stops that phone alone.
 

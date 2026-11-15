@@ -29,6 +29,10 @@ class FakeStack {
     this.log = log;
     this.size = null;
     this.children = [];
+    // The alignment a stack was told to use. The widget says on every line
+    // where its content stands, so that it does not lean on the default of
+    // Scriptable.
+    this.alignment = 'default';
   }
   addText(value) {
     this.log.push(String(value));
@@ -54,8 +58,8 @@ class FakeStack {
   addSpacer(size) {
     this.children.push({ type: 'spacer', size: size === undefined ? null : size });
   }
-  centerAlignContent() {}
-  topAlignContent() {}
+  centerAlignContent() { this.alignment = 'center'; }
+  topAlignContent() { this.alignment = 'top'; }
   layoutVertically() {}
   layoutHorizontally() {}
 }
@@ -93,6 +97,24 @@ const barLevels = (node, found = []) => {
     found.push(level);
   }
   for (const child of stack.children) if (child.type === 'stack') barLevels(child, found);
+  return found;
+};
+
+// Every stack of the widget.
+const allStacks = (stack, found = []) => {
+  found.push(stack);
+  for (const child of stack.children) if (child.type === 'stack') allStacks(child.stack, found);
+  return found;
+};
+
+// The lines of the cards that hold a number, with the card they belong to.
+// The line of a number is the one that says how much of the quota is left.
+const numberLines = (stack, found = [], parent = null) => {
+  const children = stack.children;
+  if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text || '')))) {
+    found.push({ stack, children, parent });
+  }
+  for (const child of children) if (child.type === 'stack') numberLines(child.stack, found, stack);
   return found;
 };
 
@@ -814,80 +836,88 @@ test('the unit of a window is written the same way for every provider', async ()
   assert.doesNotMatch(written, /monthly/i);
 });
 
-// The name of a card and the number below it are not centred in their row.
-// The 0.4.5 release centred every line of a card, so the name of a card
-// floated in the middle of its own row instead of standing where the row
-// begins.
-test('the name of a card and its number are not centred in their row', () => {
-  const start = source.indexOf('function line(');
-  const end = source.indexOf('\n}', start) + 2;
-  assert.ok(start > 0 && end > start, 'the widget has a line helper');
-  const helper = source.slice(start, end);
-  assert.doesNotMatch(helper, /centerAlignContent/);
-  assert.doesNotMatch(source, /valueRow\.centerAlignContent/);
-  assert.doesNotMatch(source, /value\.centerAlignContent/);
-});
-
-// The number of a card and the word in front of it are one group, and the
-// group stands in the middle of the card. The number is written in a big
-// font, and a group that hangs at the left edge of the card leaves the card
-// looking loose; the word stays on the left of the number all the same.
-test('the number of a card and the word in front of it stand in the middle', async () => {
-  const cards = realCards();
-  const { Request } = listening({
-    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
-  });
-  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
-  const rows = [];
-  const walk = node => {
-    if (node.type !== 'stack') return;
-    const children = node.stack.children;
-    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
-    children.forEach(child => { if (child.type === 'stack') walk(child); });
-  };
-  walk({ type: 'stack', stack: tree });
-  assert.equal(rows.length, 4, 'every card of the page shows a number');
-  for (const children of rows) {
-    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
-    const before = children.slice(0, number);
-    const after = children.slice(number + 1);
-    assert.equal(before[0].type, 'spacer');
-    assert.equal(before[0].size, null, 'the room in front of the group');
-    assert.equal(before[1].type, 'text', 'the word is on the left of the number');
-    assert.equal(before[2].size, 2, 'the gap between the word and the number');
-    assert.equal(after[0].type, 'spacer');
-    assert.equal(after[0].size, null, 'the room behind the group');
-  }
-});
-
-// The same for the middle family with four cards, which is the shape a
-// phone usually has: the group is in the middle there as well.
-test('the number of a card of the medium widget stands in the middle', async () => {
+// The name of a card stands at the top of its own line. The 0.4.5 release
+// centred every line of a card, so the name of a card floated in the middle
+// of its line instead of standing where the line begins; the 0.4.6 release
+// only took the call away and left the line to the default of Scriptable.
+// The line says where its content stands now.
+test('the name of a card stands at the top of its line', async () => {
   const cards = realCards();
   const { Request } = listening({
     '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
   });
   const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
-  const rows = [];
-  const walk = node => {
-    if (node.type !== 'stack') return;
-    const children = node.stack.children;
-    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
-    children.forEach(child => { if (child.type === 'stack') walk(child); });
-  };
-  walk({ type: 'stack', stack: tree });
-  assert.equal(rows.length, 4, 'every card of the page shows a number');
-  for (const children of rows) {
-    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
-    assert.equal(children[0].size, null, 'the room in front of the group');
-    assert.equal(children[number + 1].size, null, 'the room behind the group');
+  const names = ['MiniMax', 'Codex', 'GLM'];
+  const lines = allStacks(tree).filter(stack => stack.children.some(child =>
+    child.type === 'text' && names.includes(String(child.element.text || ''))));
+  assert.equal(lines.length, 4, 'every card of the page shows its name');
+  for (const line of lines) {
+    assert.equal(line.alignment, 'top', 'the name stands at the top of its line');
   }
 });
 
-// The same for the middle family with six cards: there the row is a dense
-// one, the window of the card stands at the right end of it, and the group
-// keeps the middle of the room that is left.
-test('the number stands in the middle of a dense card too', async () => {
+// The small widget has a name of its own: the name of the card and the
+// window of it stand on one line, and the name stands at the top of it, the
+// way it does in the cards of the two larger families.
+test('the name of the small widget stands at the top of its line', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  const lines = allStacks(tree).filter(stack => stack.children.some(child =>
+    child.type === 'text' && String(child.element.text || '') === 'MiniMax'));
+  assert.equal(lines.length, 1, 'the small widget shows the name of one card');
+  assert.equal(lines[0].alignment, 'top', 'the name stands at the top of its line');
+});
+
+// The word in front of the number and the number itself are one line: the
+// word stands in the middle of the number, so that the two are read as one
+// thing, and the pair stands at the left of the card, under the name.
+test('the word in front of the number stands in the middle of the number', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
+  const lines = numberLines(tree);
+  assert.equal(lines.length, 4, 'every card of the page shows a number');
+  for (const line of lines) {
+    assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
+    const [word, gap, number] = line.children;
+    assert.equal(word.type, 'text', 'the line begins with the word');
+    assert.equal(String(word.element.text), '剩余', 'the word is in front of the number');
+    assert.equal(gap.type, 'spacer');
+    assert.equal(gap.size, 2, 'the gap between the word and the number');
+    assert.equal(number.type, 'text');
+    assert.match(String(number.element.text), /^\d+%$/);
+  }
+});
+
+// The same in the middle family, where the cards are narrow: the word and
+// the number are on one line there as well.
+test('the word and the number of a card of the medium widget are on one line', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const lines = numberLines(tree);
+  assert.equal(lines.length, 4, 'every card of the page shows a number');
+  for (const line of lines) {
+    assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
+    assert.equal(line.children[0].type, 'text', 'the line begins with the word');
+    assert.equal(String(line.children[0].element.text), '剩余');
+    assert.equal(line.children[1].type, 'spacer');
+    assert.equal(line.children[1].size, 2);
+    assert.equal(line.children[2].type, 'text');
+    assert.match(String(line.children[2].element.text), /^\d+%$/);
+  }
+});
+
+// The same in a dense card, where the window of the card stands at the right
+// end of the line: the pair still stands at the left of it.
+test('the word and the number of a dense card are on one line', async () => {
   const cards = realCards().concat(realCards().slice(0, 2)).map((card, index) => ({
     ...card,
     id: card.id + '-' + index,
@@ -897,19 +927,94 @@ test('the number stands in the middle of a dense card too', async () => {
     '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
   });
   const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
-  const rows = [];
-  const walk = node => {
-    if (node.type !== 'stack') return;
-    const children = node.stack.children;
-    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
-    children.forEach(child => { if (child.type === 'stack') walk(child); });
-  };
-  walk({ type: 'stack', stack: tree });
-  assert.equal(rows.length, 6, 'every card of the page shows a number');
-  for (const children of rows) {
-    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
-    assert.equal(children[0].size, null, 'the room in front of the group');
-    assert.equal(children[number + 1].size, null, 'the room behind the group');
-    assert.equal(children[number + 2].type, 'text', 'the window of the card stands at the right end');
+  const lines = numberLines(tree);
+  assert.equal(lines.length, 6, 'every card of the page shows a number');
+  for (const line of lines) {
+    assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
+    assert.equal(line.children[0].type, 'text', 'the line begins with the word');
+    assert.equal(String(line.children[0].element.text), '剩余');
+    assert.equal(line.children[1].type, 'spacer');
+    assert.equal(line.children[1].size, 2);
+    assert.equal(line.children[2].type, 'text');
+    assert.match(String(line.children[2].element.text), /^\d+%$/);
+    assert.equal(line.children[3].type, 'spacer', 'the room in front of the window of the card');
+    assert.equal(line.children[3].size, null, 'the window of the card stands at the right end');
+    assert.equal(line.children[4].type, 'text');
+  }
+});
+
+// The small widget is a column of its own, but the word in front of the
+// number stands in the middle of the number there as well: the number is the
+// tallest thing on the line, so the middle of the line is the middle of the
+// number.
+test('the word of the small widget stands in the middle of the number', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  const lines = numberLines(tree);
+  assert.equal(lines.length, 1, 'the small widget shows one card');
+  const line = lines[0];
+  assert.equal(line.stack.alignment, 'center', 'the word and the number share the middle of the line');
+  assert.equal(line.children[0].type, 'text', 'the line begins with the word');
+  assert.equal(String(line.children[0].element.text), '剩余');
+  assert.equal(line.children[1].type, 'spacer');
+  assert.equal(line.children[1].size, 4, 'the gap between the word and the number');
+  assert.equal(line.children[2].type, 'text');
+  assert.match(String(line.children[2].element.text), /^\d+%$/);
+  // The number has to be the tallest thing on the line: then the middle of
+  // the line is the middle of the number, and the word, centred on the line,
+  // shares that one centre line.
+  const number = line.children[2].element;
+  const word = line.children[0].element;
+  assert.ok(number.font.size > word.font.size, 'the number is the taller of the two');
+});
+
+// The word in front of the number is the same word in every family. The
+// narrow card of the middle family used to write one character of it, so the
+// same number looked like two different things.
+test('the word in front of the number is the same word in every family', async () => {
+  const cards = realCards();
+  for (const family of ['small', 'medium', 'large']) {
+    const { Request } = listening({
+      '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+    });
+    const { tree } = await runWidget({ request: Request, config: { widgetFamily: family } });
+    const words = [];
+    const walk = node => {
+      if (node.type === 'text') words.push(String(node.element.text || ''));
+      if (node.type === 'stack') node.stack.children.forEach(walk);
+    };
+    walk({ type: 'stack', stack: tree });
+    assert.ok(words.includes('剩余'), 'the ' + family + ' widget writes the whole word');
+    assert.ok(!words.includes('剩'), 'the ' + family + ' widget does not write one character of it');
+    assert.ok(!words.includes('用'), 'the ' + family + ' widget does not write one character of it');
+  }
+});
+
+// The word and the number have to fit on one line of a card: the word is two
+// Chinese characters, and the number is written as big as the room that is
+// left allows. The cards of the middle and the large family are narrow; the
+// small widget is a column with room to spare.
+test('the word and the number fit on one line of a card', async () => {
+  const cards = realCards();
+  for (const family of ['medium', 'large']) {
+    const { Request } = listening({
+      '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+    });
+    const { tree } = await runWidget({ request: Request, config: { widgetFamily: family } });
+    const lines = numberLines(tree);
+    assert.equal(lines.length, 4, 'every card of the ' + family + ' widget shows a number');
+    for (const line of lines) {
+      const word = line.children[0].element;
+      const number = line.children[2].element;
+      const wordWidth = 2 * word.font.size;
+      // The widest number is "100%": three digits and a sign.
+      const numberWidth = (3 * 0.58 + 0.85) * number.font.size;
+      const cell = line.parent.size.width;
+      assert.ok(wordWidth + 2 + numberWidth <= cell + 0.01,
+        'the word and the number need ' + (wordWidth + 2 + numberWidth) + ' points, but the card is ' + cell + ' wide');
+    }
   }
 });
