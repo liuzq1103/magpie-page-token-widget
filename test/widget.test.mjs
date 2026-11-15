@@ -47,8 +47,12 @@ class FakeStack {
     this.children.push({ type: 'image', element });
     return element;
   }
-  addSpacer(size = 0) {
-    this.children.push({ type: 'spacer', size });
+  // A spacer without a size is a flexible one: it takes the room that is
+  // left over. The stub keeps that apart from a spacer of a fixed size, so
+  // a test can tell a group that stands in the middle from one that hangs at
+  // the edge.
+  addSpacer(size) {
+    this.children.push({ type: 'spacer', size: size === undefined ? null : size });
   }
   centerAlignContent() {}
   topAlignContent() {}
@@ -822,4 +826,90 @@ test('the name of a card and its number are not centred in their row', () => {
   assert.doesNotMatch(helper, /centerAlignContent/);
   assert.doesNotMatch(source, /valueRow\.centerAlignContent/);
   assert.doesNotMatch(source, /value\.centerAlignContent/);
+});
+
+// The number of a card and the word in front of it are one group, and the
+// group stands in the middle of the card. The number is written in a big
+// font, and a group that hangs at the left edge of the card leaves the card
+// looking loose; the word stays on the left of the number all the same.
+test('the number of a card and the word in front of it stand in the middle', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
+  const rows = [];
+  const walk = node => {
+    if (node.type !== 'stack') return;
+    const children = node.stack.children;
+    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
+    children.forEach(child => { if (child.type === 'stack') walk(child); });
+  };
+  walk({ type: 'stack', stack: tree });
+  assert.equal(rows.length, 4, 'every card of the page shows a number');
+  for (const children of rows) {
+    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
+    const before = children.slice(0, number);
+    const after = children.slice(number + 1);
+    assert.equal(before[0].type, 'spacer');
+    assert.equal(before[0].size, null, 'the room in front of the group');
+    assert.equal(before[1].type, 'text', 'the word is on the left of the number');
+    assert.equal(before[2].size, 2, 'the gap between the word and the number');
+    assert.equal(after[0].type, 'spacer');
+    assert.equal(after[0].size, null, 'the room behind the group');
+  }
+});
+
+// The same for the middle family with four cards, which is the shape a
+// phone usually has: the group is in the middle there as well.
+test('the number of a card of the medium widget stands in the middle', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const rows = [];
+  const walk = node => {
+    if (node.type !== 'stack') return;
+    const children = node.stack.children;
+    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
+    children.forEach(child => { if (child.type === 'stack') walk(child); });
+  };
+  walk({ type: 'stack', stack: tree });
+  assert.equal(rows.length, 4, 'every card of the page shows a number');
+  for (const children of rows) {
+    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
+    assert.equal(children[0].size, null, 'the room in front of the group');
+    assert.equal(children[number + 1].size, null, 'the room behind the group');
+  }
+});
+
+// The same for the middle family with six cards: there the row is a dense
+// one, the window of the card stands at the right end of it, and the group
+// keeps the middle of the room that is left.
+test('the number stands in the middle of a dense card too', async () => {
+  const cards = realCards().concat(realCards().slice(0, 2)).map((card, index) => ({
+    ...card,
+    id: card.id + '-' + index,
+    windows: card.windows.map((entry, at) => (at ? entry : { ...entry, label: (index + 2) + ' hours' })),
+  }));
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'medium' } });
+  const rows = [];
+  const walk = node => {
+    if (node.type !== 'stack') return;
+    const children = node.stack.children;
+    if (children.some(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)))) rows.push(children);
+    children.forEach(child => { if (child.type === 'stack') walk(child); });
+  };
+  walk({ type: 'stack', stack: tree });
+  assert.equal(rows.length, 6, 'every card of the page shows a number');
+  for (const children of rows) {
+    const number = children.findIndex(child => child.type === 'text' && /^\d+%$/.test(String(child.element.text)));
+    assert.equal(children[0].size, null, 'the room in front of the group');
+    assert.equal(children[number + 1].size, null, 'the room behind the group');
+    assert.equal(children[number + 2].type, 'text', 'the window of the card stands at the right end');
+  }
 });

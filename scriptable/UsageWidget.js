@@ -458,6 +458,10 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       }
       column.addSpacer(style.titleGap);
       const valueRow = line(column, style.value, cellWidth);
+      // The word in front of the number and the number itself are one group:
+      // the number is written in a big font, so the group stands in the middle
+      // of the card and the word stays on the left of the number.
+      valueRow.addSpacer();
       // A narrow cell has no room for the whole word, and the footer of the
       // widget says which way the numbers are read.
       const word = large || cellWidth >= 78 ? direction() : (showUsed ? "用" : "剩");
@@ -465,7 +469,12 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       valueRow.addSpacer(2);
       text(valueRow, percent(primary), style.value, accent(primary), "medium");
       if (!large && dense && !sharedWindow) {
+        // The window of the card stands at the right end of the row, and the
+        // group keeps the middle of what is left of it.
         valueRow.addSpacer(); text(valueRow, windowLabel(primary), 8, colors.muted);
+      } else {
+        // The other half of the room: the group is in the middle of the card.
+        valueRow.addSpacer();
       }
       column.addSpacer(style.barGap);
       bar(column, primary, cellWidth);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { project, shanghaiDay } from '../lib/normalize.mjs';
+import { normalizeQuotas, project, resolveQuotas, sanitizeCachedLabels, shanghaiDay } from '../lib/normalize.mjs';
 
 const iso = (offset = 0) => new Date(Date.now() + offset).toISOString();
 
@@ -115,4 +115,60 @@ test('the order of the accounts is the order the user gave', () => {  const view
     {},
   );
   assert.deepEqual(view.subscriptions.map(entry => entry.id), ['codex@liuzq', 'codex@alpha', 'minimax']);
+});
+
+// A window of a provider that is not a span of time keeps a name of its own:
+// the image quota of Codex is one of them, and "Quota" says nothing about
+// it. A name that is not known does not reach the phone as it is.
+test('a window keeps the name it has', () => {
+  const cards = normalizeQuotas({ data: [{
+    provider: 'codex',
+    windows: [
+      { name: '5 hours', used: 10 },
+      { name: 'Image generation', used: 0 },
+      { name: 'a word of the provider', used: 3 },
+    ],
+  }] });
+  assert.equal(cards.length, 1);
+  assert.deepEqual(cards[0].windows.map(window => window.label), ['5 hours', '图片生成', 'Quota']);
+});
+
+// A name that is a word of the prototype is a name like any other: it gets
+// the plain "Quota", and not something the table happens to inherit.
+test('a window whose name is a word of the prototype gets the plain name', () => {
+  const cards = normalizeQuotas({ data: [{
+    provider: 'codex',
+    windows: [
+      { name: 'constructor', used: 1 },
+      { name: '__proto__', used: 2 },
+      { name: 'toString', used: 3 },
+    ],
+  }] });
+  assert.deepEqual(cards[0].windows.map(window => window.label), ['Quota', 'Quota', 'Quota']);
+});
+
+// A reading that was stored comes back in with the name it was stored under.
+// The name we wrote ourselves has to be the name of ourselves when it comes
+// back, or a reading that is old loses the name it had when it was new. The
+// road it comes back on is the one the service walks: it hands the stored
+// cards in again, with the name they were stored under.
+test('a window keeps its name when the service reads the stored cards again', () => {
+  const stored = [{
+    id: 'codex@alpha',
+    provider: 'codex',
+    account: 'alpha',
+    label: 'Codex · alpha',
+    plan: 'ChatGPT',
+    accounts: 1,
+    updatedAt: new Date().toISOString(),
+    stale: true,
+    windows: [
+      { label: '5 hours', usedPercent: 10, remainingPercent: 90, resetsAt: null },
+      { label: '图片生成', usedPercent: 0, remainingPercent: 100, resetsAt: null },
+    ],
+  }];
+  const back = resolveQuotas({ data: [] }, {}, stored);
+  assert.deepEqual(back[0].windows.map(window => window.label), ['5 hours', '图片生成']);
+  const cleaned = sanitizeCachedLabels(stored, 'quotas');
+  assert.deepEqual(cleaned[0].windows.map(window => window.label), ['5 hours', '图片生成']);
 });
