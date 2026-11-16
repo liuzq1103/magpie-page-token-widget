@@ -50,9 +50,14 @@ function widgetDimensions() {
   return { width: bounds[0], height: family === "large" ? bounds[2] : bounds[1] };
 }
 const dimensions = widgetDimensions();
+// The small family is square: its width is the height of it, which is the
+// height of the medium family. Measuring it with the width of the medium
+// made every line of it believe it had twice the room it has: the name of
+// the card was squeezed by the system instead of being sized by the script,
+// and the bar of it was wider than the widget on the smallest phone.
 const layout = {
   side: 16, vertical: family === "medium" && dimensions.height < 155 ? 12 : 14,
-  width: dimensions.width - 32, header: 20, footer: family === "large" ? 30 : 13,
+  width: (family === "small" ? dimensions.height : dimensions.width) - 32, header: 20, footer: family === "large" ? 30 : 13,
   columnGap: family === "large" ? 16 : 10
 };
 // The colours of the card follow the appearance of the system, and they have
@@ -588,7 +593,12 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
   cached = cached || Object.values(data.sources).some(s => s.state !== "ok") || data.subscriptions.some(c => c.stale) || observations.some(s => Date.now() - Date.parse(s) > 180000);
   const status = failure || (cached ? "缓存 " : "") + clock(observations[0]);
   if (family === "small") {
-    header(status);
+    // The small family has no row of its own for the title of the widget: the
+    // name of the card is the title here, and the time of the reading stands
+    // at the right end of the last line. The title row with the spacer under
+    // it cost 26 of the 113 points of the smallest small widget, and the line
+    // of today's tokens — the last line of the column — was cut off at the
+    // bottom on all but the largest phones.
     // A parameter may name one account of a vendor (codex@alice) or the
     // vendor itself, which then means its first account. The id is matched as
     // it is written: two accounts of one vendor may differ in their case only.
@@ -607,7 +617,6 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     // nothing. The first card is shown instead, and the note says so.
     const card = found || cards.find(c => c && c.usage && c.usage.today) || cards[0];
     const missing = Boolean(chosen) && !found && Boolean(card);
-    widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
     const name = widget.addStack();
     // The name of a card stands at the top of its line, in every family.
@@ -624,7 +633,7 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     // The name of the card and the window of it stand at the left of the
     // widget, the way they do in the cards of the two larger families.
     atLeft(name);
-    widget.addSpacer(3);
+    widget.addSpacer(2);
     const value = widget.addStack();
     // The word stands in the middle of the number, the way it does in the
     // cards of the two larger families, and the pair stands at the left.
@@ -633,17 +642,24 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
     value.addSpacer(4);
     text(value, percent(primary), 34, accent(primary), "medium");
     atLeft(value);
-    widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
+    // The bar is as wide as the widget really is. It was 120 points wide, and
+    // the smallest small widget has 109.
+    widget.addSpacer(5); bar(widget, primary, layout.width); widget.addSpacer(5);
     text(widget, reset(primary), 9, colors.muted);
     if (card && card.windows[1]) {
-      widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 用 " : " 剩 ") + percent(card.windows[1]), 9, colors.muted);
+      widget.addSpacer(2); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 用 " : " 剩 ") + percent(card.windows[1]), 9, colors.muted);
     }
     widget.addSpacer();
     // The tokens of the subscription this widget shows, not the total of all.
     // A subscription that is not on screen has no tokens of its own to show.
+    // The time of the reading stands at the other end of the line, where the
+    // header of the larger families keeps it.
     const own = card && card.usage && card.usage.today;
     const tokens = own ? own.totalTokens : null;
-    text(widget, "今日 " + (tokens == null ? "—" : compact(tokens)) + " token", 10, colors.muted);
+    const foot = widget.addStack();
+    text(foot, "今日 " + (tokens == null ? "—" : compact(tokens)) + " token", 10, colors.muted);
+    foot.addSpacer();
+    text(foot, status, 9, cached ? colors.warning : colors.muted);
   } else {
     // Preserve service order and every independent account; page only on the phone.
     const all = data.subscriptions || [];
@@ -676,7 +692,15 @@ if (!settings || !settings.token || !data || data.schemaVersion !== 1) {
       totals.addSpacer();
       text(totals, "近七日 " + compact(data.usage.week && data.usage.week.totalTokens), 11, colors.muted);
       foot.addSpacer(4);
-      text(foot, looksLikeToken ? "参数里的令牌已忽略 · Token 含缓存" : direction + " · Token 含缓存", 8, looksLikeToken ? colors.warning : colors.muted);
+      // The note about the tokens stands under the tokens it is about, at the
+      // left, and the word about the cards stands at the right end. Written as
+      // one line at the left ("剩余 · 5h · Token 含缓存") the two of them were
+      // read as one thing: a remaining of five hours, in tokens, cache
+      // included — which is not what any of the numbers says.
+      const notes = foot.addStack();
+      text(notes, looksLikeToken ? "参数里的令牌已忽略" : "Token 含缓存", 8, looksLikeToken ? colors.warning : colors.muted);
+      notes.addSpacer();
+      if (!looksLikeToken) text(notes, direction, 8, colors.muted);
     }
   }
 }

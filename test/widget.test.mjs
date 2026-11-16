@@ -682,6 +682,9 @@ const runMeasured = async ({ family = 'medium', screen = [320, 568], data = over
     ListWidget: class extends MeasuredStack {
       constructor() {
         super();
+        // A ListWidget holds its content in a column, the way a stack that
+        // was told to lay out vertically does.
+        this.vertical = true;
         created = this;
         this.backgroundColor = null;
       }
@@ -1216,6 +1219,91 @@ test('the rows of the small widget stand at the left of it', async () => {
   const end = lines[0].children[lines[0].children.length - 1];
   assert.equal(end.type, 'spacer', 'the line of the number ends with room for the rest of the widget');
   assert.equal(end.size, null, 'the room is flexible, so the pair stands at the left');
+});
+
+// The small widget is square, and the smallest one of all the widgets: on the
+// smallest phone its frame is 141 points high, 113 of them free for the
+// column. The column was 139 points tall — a row for the title, the number of
+// the card, the bar, two lines about the windows — and the last line, the one
+// about the tokens of today, was cut off at the bottom. The title row is gone
+// now: the column has to fit the smallest frame, with room to spare, on every
+// phone the project measured on. The frame of a small widget is the height of
+// the medium one, the same on every phone of one size.
+test('the column of the small widget fits the widget', async () => {
+  const frames = { '320x568': 141, '375x667': 148, '375x812': 155, '390x844': 158, '402x874': 164, '430x932': 170 };
+  for (const [phone, frame] of Object.entries(frames)) {
+    // A card with two windows is the tallest column the small widget draws:
+    // the second window gets a line of its own.
+    const data = overview();
+    const widget = await runMeasured({ family: 'small', screen: phone.split('x').map(Number), data });
+    // The widget is drawn with 14 points of air above and below the column.
+    const room = frame - 28;
+    const left = room - widget.height();
+    assert.ok(left >= 5,
+      `the column of the small widget is ${widget.height().toFixed(1)} points tall on ${phone}, `
+      + `the widget has ${room}, ${left.toFixed(1)} points are left`);
+    // The line of today is the last line of the column: it was the one the old
+    // column pushed out of the widget.
+    const last = widget.children[widget.children.length - 1];
+    assert.ok(last instanceof MeasuredStack, 'the column ends with the line of today');
+    assert.ok(last.height() > 0, 'the line of today takes room of its own');
+  }
+});
+
+// The tokens of today stand on the last line of the small widget, and the time
+// of the reading stands at the other end of that line: the title row that held
+// the time is gone, so this line is where the time lives now.
+test('the last line of the small widget holds the tokens of today and the time of the reading', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'small' } });
+  const rows = allStacks(tree).filter(stack => stack.children.some(child =>
+    child.type === 'text' && String(child.element.text || '').startsWith('今日 ')));
+  assert.equal(rows.length, 1, 'the small widget has one line about today');
+  const row = rows[0];
+  const texts = row.children.filter(child => child.type === 'text').map(child => String(child.element.text));
+  assert.equal(texts.length, 2, 'the time of the reading stands on the same line');
+  assert.match(texts[0], /^今日 .+ token$/, 'the line says how many tokens were used today');
+  assert.match(texts[1], /^(缓存 )?\d{2}:\d{2}$/, 'the other end of the line holds the time of the reading');
+  const end = tree.children[tree.children.length - 1];
+  assert.ok(end.type === 'stack' && end.stack === row, 'the line of today is the last line of the column');
+});
+
+// The note about the tokens ("Token 含缓存") says what the numbers above it
+// count; the word about the cards ("剩余 · 5h") says which way the quotas run.
+// Written as one line at the left ("剩余 5h token含缓存") the two of them were
+// read as one thing: a remaining of five hours, in tokens, cache included —
+// which is not what any of the numbers says. The two stand at the two ends of
+// the last line of the large widget now, and no text says both at once.
+test('the note about the tokens and the word about the cards are two things in the large footer', async () => {
+  const cards = realCards();
+  const { Request } = listening({
+    '/api/v1/overview': overview({ subscriptions: cards.map(card => card.id) }, cards),
+  });
+  const { tree } = await runWidget({ request: Request, config: { widgetFamily: 'large' } });
+  const texts = [];
+  const walk = node => {
+    if (node.type === 'text') texts.push(String(node.element.text || ''));
+    if (node.type === 'stack') node.stack.children.forEach(walk);
+  };
+  walk({ type: 'stack', stack: tree });
+  assert.ok(texts.includes('Token 含缓存'), 'the note about the tokens is there');
+  assert.ok(texts.some(value => value.startsWith('剩余')), 'the word about the cards is there');
+  for (const value of texts) {
+    assert.ok(!(value.includes('Token') && (value.includes('剩余') || value.includes('已用'))),
+      'no text of the widget says both things at once: ' + value);
+  }
+  const row = allStacks(tree).find(stack => stack.children.some(child =>
+    child.type === 'text' && String(child.element.text) === 'Token 含缓存'));
+  assert.ok(row, 'the note about the tokens has a line of its own');
+  const order = row.children.filter(child => child.type === 'text').map(child => String(child.element.text));
+  assert.equal(order[0], 'Token 含缓存', 'the note stands at the left of the line');
+  assert.ok(order.length === 2 && order[1].startsWith('剩余'), 'the word about the cards stands after it');
+  const middle = row.children[row.children.length - 2];
+  assert.equal(middle.type, 'spacer', 'the room between the two is the last thing but one of the line');
+  assert.equal(middle.size, null, 'the room is flexible, so the note stands at the left end and the word at the right end');
 });
 
 // The colours of a card follow the appearance of the system. The widget is
