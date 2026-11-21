@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.16
+
+- 发到 npm 改成用 GitHub Actions 自己的身份（npm 叫它 trusted publisher），**不用令牌了**。npm 那边认的是 `.github/workflows/publish.yml` 这一个工作流：Release 一发，工作流就自己把包发上去。
+- 工作流发之前先问两件事：这次发布在不在 `main` 上；标签和 `package.json` 里的版本号是不是同一个。有一处不对就不发。
+- npm 那边只写一次：包的设置里加一个 trusted publisher（GitHub Actions，`liuzq1103` / `magpie-page-token-widget` / `publish.yml`，Environment 留空，允许 `npm publish`）。这几项和工作流文件的名要一字不差，对不上 npm 会拒绝，而它只在日志里说一句。
+- 两个新测试守着这件事：工作流用的是 OIDC 而不是令牌（有 `id-token: write`、写了 registry、不用缓存、Node 24），以及 `package.json` 写着自己的仓库地址（trusted publisher 就是靠这一行认出这个包的）。
+- 这一版没有改组件：服务和脚本都和 0.4.15 一样，升级的人不用做任何事。
+
 ## 0.4.15
 
 - 插件页的「小组件」分成两块了。**第一块「显示内容」**：数字是剩余还是已用——这一块管三种尺寸的组件。**第二块「小号组件显示哪一张」**：小号组件看哪张卡——只管小号那个，中号和大号组件显示的是上面「显示哪些订阅」里勾出来的那些。以前这两组选项挤在同一个列表里，页面上没写哪一组是哪一组，得靠猜；现在各在一块里，各有各的说明。

@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> [English](README.en.md) · 中文 · 当前版本 0.4.15（变更见 [CHANGELOG.md](CHANGELOG.md)）
+> [English](README.en.md) · 中文 · 当前版本 0.4.16（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 把 iPhone 桌面的额度组件接进 Magpie：装上这个插件，扫一次码，手机上就能显示 Codex、MiniMax、GLM 各家套餐的剩余额度与真实 Token 用量。
 
@@ -293,3 +293,19 @@ npm test
 测试里不会碰真的 Tailscale：所有和 Tailscale 命令打交道的测试都用一个自己的假命令（`test/helpers.mjs` 里的 `mockTailscale`），也不会去改真的 `tailscale serve` 设置。Magpie 网关同样是测试自己起的一个。
 
 `lib/collector.mjs` 和 `lib/normalize.mjs` 来自 [ScriptableTokenWidgets](https://github.com/liuzq1103/ScriptableTokenWidgets)，`lib/vendor/qrcode-generator.cjs` 是 [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)。详见 [NOTICE](NOTICE)。
+
+### 发一版
+
+发到 npm 用的是 GitHub Actions 自己的身份（npm 叫它 trusted publisher），**不需要任何令牌**。
+
+1. 改 `package.json` 里的版本号，写 `CHANGELOG.md`。
+2. `npm test` 过了以后提交、推到 `main`。
+3. 打标签推上去：`git tag -a v0.4.16 -m "v0.4.16"`，再 `git push origin v0.4.16`。
+4. 发一个 Release（`gh release create v0.4.16`）。`.github/workflows/publish.yml` 看见 Release 就自己把包发到 npm。
+
+工作流发之前先问两件事：这次发布在不在 `main` 上，标签和 `package.json` 里的版本号是不是同一个。有一处不对，它就不发。
+
+npm 那边只写一次：包的设置（https://www.npmjs.com/settings）→ **Trusted Publisher** → GitHub Actions，
+**Organization or user** 填 `liuzq1103`，**Repository** 填 `magpie-page-token-widget`，**Workflow filename** 填
+`publish.yml`，**Environment name** 留空，并且允许 `npm publish`。这几项和这里要一字不差，对不上 npm 会
+拒绝，而它只在日志里说一句。

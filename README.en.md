@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.15 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.16 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -285,3 +285,24 @@ npm test
 The tests never touch the real Tailscale: everything that speaks with the command of Tailscale talks to a fake one instead (`mockTailscale` in `test/helpers.mjs`), and the real `tailscale serve` settings are never changed. The gateway of Magpie is one the tests start themselves.
 
 `lib/collector.mjs` and `lib/normalize.mjs` come from [ScriptableTokenWidgets](https://github.com/liuzq1103/ScriptableTokenWidgets), `lib/vendor/qrcode-generator.cjs` is [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator). See [NOTICE](NOTICE).
+
+### Releasing a version
+
+The package is published to npm with the identity of GitHub Actions itself (npm calls it a
+trusted publisher), so **no token is needed at all**.
+
+1. Change the version in `package.json` and write the `CHANGELOG.md`.
+2. Let `npm test` pass, then commit and push to `main`.
+3. Tag and push the tag: `git tag -a v0.4.16 -m "v0.4.16"`, then `git push origin v0.4.16`.
+4. Publish a Release (`gh release create v0.4.16`). `.github/workflows/publish.yml` sees the
+   Release and publishes the package to npm by itself.
+
+The workflow asks two things before it publishes: that the release is on `main`, and that the
+tag and the version in `package.json` are the same. If one of them is not, nothing is published.
+
+npm needs to be told once: in the settings of the package (https://www.npmjs.com/settings) under
+**Trusted Publisher** choose GitHub Actions, and fill in **Organization or user** with
+`liuzq1103`, **Repository** with `magpie-page-token-widget` and **Workflow filename** with
+`publish.yml`. Leave the **Environment name** empty and allow `npm publish`. Every one of these
+has to be written here letter by letter: npm refuses the publish when one of them is different,
+and it only says so in the log of the run.

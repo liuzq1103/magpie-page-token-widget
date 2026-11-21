@@ -1,0 +1,73 @@
+name: publish
+
+# The package is published with the identity of GitHub Actions itself: npm
+# calls it a trusted publisher, and it needs no token at all. The name of this
+# file is the name that is written down in the settings of the package on
+# npmjs.com, so the two have to stay the same, letter by letter.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag that is published
+        required: true
+
+permissions:
+  contents: read
+  # The OIDC token comes from here. npm exchanges it for a short-lived
+  # publishing token that belongs to this one run.
+  id-token: write
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history is needed, so that the release can be checked
+          # against main.
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          # npm exchanges the OIDC token by itself from npm 11.5.1 on, and that
+          # npm needs Node 22.14.0 or newer.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          # The cache of a publishing build may hold the credentials of the
+          # build, so it is not used here.
+          package-manager-cache: false
+
+      # The package has no dependencies and no lockfile, so there is nothing
+      # to install before it is packed.
+
+      - name: Check the syntax of every source file
+        run: npm run check:syntax
+
+      - name: Run the tests
+        run: npm test
+
+      - name: The release has to come from main
+        run: |
+          git fetch origin main --depth=1
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "this release is not on main" >&2
+            exit 1
+          fi
+
+      - name: The tag and the version have to be the same
+        run: |
+          tag="${TAG#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "the tag is $tag and the version is $version" >&2
+            exit 1
+          fi
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+
+      - name: Publish to npm
+        run: npm publish
