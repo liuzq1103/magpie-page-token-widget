@@ -13,23 +13,108 @@ on:
         description: The tag that is published
         required: true
 
-permissions:
-  contents: read
-  # The OIDC token comes from here. npm exchanges it for a short-lived
-  # publishing token that belongs to this one run.
-  id-token: write
-
+# The two jobs do not trust each other. The first one reads the code and says
+# whether it may be published; the second one publishes the package that was
+# packed by the first one and runs no code of the repository at all. Only the
+# second one holds the OIDC token, and the code of the release never gets to
+# touch it.
 jobs:
+  verify:
+    name: check the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The rules of the release are read from the main branch, not from the
+      # tag: a tag may carry another workflow and another set of rules.
+      - name: Take the repository and its whole history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: The npm of the runner can exchange the OIDC token by itself
+        run: |
+          version="$(npm --version)"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
+            echo "npm $version cannot exchange the OIDC token by itself; npm 11.5.1 or newer is needed" >&2
+            exit 1
+          fi
+          echo "npm $version"
+
+      - id: guard
+        name: The release has to be a tag on the main branch, with the version of the package
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          # A release names its own commit; a manual run does not, and then
+          # the tag alone says which commit is meant.
+          EXPECT_SHA: ${{ github.event_name == 'release' && github.sha || '' }}
+          # The run may come from the tag; the workflow of the run has to be
+          # the one of the main branch.
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          workflow_ref="${WORKFLOW_REF#*@}"
+          node scripts/verify-release.mjs \
+            --tag "$TAG" \
+            --expect-sha "$EXPECT_SHA" \
+            --workflow-ref "$workflow_ref"
+
+      - name: Take the commit of the tag
+        run: git checkout --detach "${{ steps.guard.outputs.commit }}"
+
+      - name: Check the syntax of every source file
+        run: npm run check:syntax
+
+      - name: Run the tests
+        run: npm test
+
+      - name: Pack the package
+        id: pack
+        run: |
+          mkdir -p dist
+          name="$(npm pack --pack-destination dist --silent | tail -n 1)"
+          if [ ! -f "dist/$name" ]; then
+            echo "the package was not packed" >&2
+            exit 1
+          fi
+          echo "tarball=dist/$name" >> "$GITHUB_OUTPUT"
+          ls -l dist
+
+      - name: Hand the package over to the job that publishes it
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: dist/*.tgz
+          if-no-files-found: error
+
   publish:
     name: publish to npm
+    needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The OIDC token comes from here. npm exchanges it for a short-lived
+      # publishing token that belongs to this one run.
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Take the package that was checked
+        uses: actions/download-artifact@v4
         with:
-          # The whole history is needed, so that the release can be checked
-          # against main.
-          fetch-depth: 0
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          name: package
+          path: dist
+
+      - name: There is one package, and it is the one that was checked
+        run: |
+          count="$(ls dist/*.tgz | wc -l)"
+          if [ "$count" -ne 1 ]; then
+            echo "there are $count packages, not one" >&2
+            exit 1
+          fi
+          ls -l dist
 
       - uses: actions/setup-node@v4
         with:
@@ -39,35 +124,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           # The cache of a publishing build may hold the credentials of the
           # build, so it is not used here.
-          package-manager-cache: false
+          cache: ''
 
-      # The package has no dependencies and no lockfile, so there is nothing
-      # to install before it is packed.
-
-      - name: Check the syntax of every source file
-        run: npm run check:syntax
-
-      - name: Run the tests
-        run: npm test
-
-      - name: The release has to come from main
-        run: |
-          git fetch origin main --depth=1
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "this release is not on main" >&2
-            exit 1
-          fi
-
-      - name: The tag and the version have to be the same
-        run: |
-          tag="${TAG#v}"
-          version="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$version" ]; then
-            echo "the tag is $tag and the version is $version" >&2
-            exit 1
-          fi
-        env:
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
-
+      # The package is published as it was packed and checked; the code of the
+      # repository is not in this job, and it is not run here.
       - name: Publish to npm
-        run: npm publish
+        run: npm publish dist/*.tgz

@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.16 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.17 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of Codex, MiniMax and GLM.
 
@@ -289,16 +289,33 @@ The tests never touch the real Tailscale: everything that speaks with the comman
 ### Releasing a version
 
 The package is published to npm with the identity of GitHub Actions itself (npm calls it a
-trusted publisher), so **no token is needed at all**.
+trusted publisher), so **no long-lived token has to be kept anywhere**.
 
 1. Change the version in `package.json` and write the `CHANGELOG.md`.
 2. Let `npm test` pass, then commit and push to `main`.
-3. Tag and push the tag: `git tag -a v0.4.16 -m "v0.4.16"`, then `git push origin v0.4.16`.
-4. Publish a Release (`gh release create v0.4.16`). `.github/workflows/publish.yml` sees the
+3. Tag and push the tag: `git tag -a v0.4.17 -m "v0.4.17"`, then `git push origin v0.4.17`.
+4. Publish a Release (`gh release create v0.4.17`). `.github/workflows/publish.yml` sees the
    Release and publishes the package to npm by itself.
 
-The workflow asks two things before it publishes: that the release is on `main`, and that the
-tag and the version in `package.json` are the same. If one of them is not, nothing is published.
+The workflow has two jobs. The first one reads the code, asks the questions and packs the
+package; the second one takes the packed package and publishes it to npm, and **not one line of
+the code of the repository runs in it**. Only the second one holds the OIDC token that is good
+for this one run, so the code that is about to be published never gets to touch it.
+
+The first job asks five things before anything is published, and the rules are in
+`scripts/verify-release.mjs`:
+
+1. the tag is the name of a version;
+2. the tag is a tag of this repository (not a branch that happens to have the same name), and it
+   says which commit it means;
+3. that commit is on `main`;
+4. the version in `package.json` of that commit is the version of the tag;
+5. that commit did not change the rules themselves — `publish.yml` and
+   `scripts/verify-release.mjs` are the same as on `main`, word for word.
+
+If one of them does not hold, nothing is published. The rules are run against little
+repositories of their own (`test/release-guard.test.mjs`), so a rule that changes turns the
+tests red.
 
 npm needs to be told once: in the settings of the package (https://www.npmjs.com/settings) under
 **Trusted Publisher** choose GitHub Actions, and fill in **Organization or user** with

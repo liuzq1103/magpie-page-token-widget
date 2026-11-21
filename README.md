@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> [English](README.en.md) · 中文 · 当前版本 0.4.16（变更见 [CHANGELOG.md](CHANGELOG.md)）
+> [English](README.en.md) · 中文 · 当前版本 0.4.17（变更见 [CHANGELOG.md](CHANGELOG.md)）
 
 把 iPhone 桌面的额度组件接进 Magpie：装上这个插件，扫一次码，手机上就能显示 Codex、MiniMax、GLM 各家套餐的剩余额度与真实 Token 用量。
 
@@ -296,14 +296,24 @@ npm test
 
 ### 发一版
 
-发到 npm 用的是 GitHub Actions 自己的身份（npm 叫它 trusted publisher），**不需要任何令牌**。
+发到 npm 用的是 GitHub Actions 自己的身份（npm 叫它 trusted publisher），**不需要保存任何长期令牌**。
 
 1. 改 `package.json` 里的版本号，写 `CHANGELOG.md`。
 2. `npm test` 过了以后提交、推到 `main`。
-3. 打标签推上去：`git tag -a v0.4.16 -m "v0.4.16"`，再 `git push origin v0.4.16`。
-4. 发一个 Release（`gh release create v0.4.16`）。`.github/workflows/publish.yml` 看见 Release 就自己把包发到 npm。
+3. 打标签推上去：`git tag -a v0.4.17 -m "v0.4.17"`，再 `git push origin v0.4.17`。
+4. 发一个 Release（`gh release create v0.4.17`）。`.github/workflows/publish.yml` 看见 Release 就自己把包发到 npm。
 
-工作流发之前先问两件事：这次发布在不在 `main` 上，标签和 `package.json` 里的版本号是不是同一个。有一处不对，它就不发。
+工作流分成两个活。第一个活读代码、问问题、打包；第二个活只拿到打包好的那个包发到 npm，**仓库里的代码一行都不在第二个活里跑**。只有第二个活手里有那个一次性的 OIDC 令牌，所以待发布的代码碰不到它。
+
+第一个活在发之前问五件事，规则都写在 `scripts/verify-release.mjs` 里：
+
+1. 标签是版本号的名字；
+2. 标签真的是这个仓库里的标签（不是碰巧同名的分支），并且它说的是哪个提交；
+3. 那个提交在 `main` 上；
+4. 那个提交的 `package.json` 里的版本号就是标签里的版本号；
+5. 那个提交没有改掉规则本身——`publish.yml` 和 `scripts/verify-release.mjs` 跟 `main` 上的一字不差。
+
+有一处不对，它就不发。这些规则是拿真的小仓库跑出来的（`test/release-guard.test.mjs`），所以规则一改，测试就红。
 
 npm 那边只写一次：包的设置（https://www.npmjs.com/settings）→ **Trusted Publisher** → GitHub Actions，
 **Organization or user** 填 `liuzq1103`，**Repository** 填 `magpie-page-token-widget`，**Workflow filename** 填
