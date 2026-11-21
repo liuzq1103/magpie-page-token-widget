@@ -9,6 +9,7 @@
 - **整段历史都要在。** 以前取 `main` 时用了 `--depth=1`，浅的历史答不出「这个提交在不在 main 上」，老标签会被误拒。现在守卫先看历史是不是被截断，截断了就补齐再判断。
 - **守卫是一段代码，不是一堆字符串检查。** 规则写在 `scripts/verify-release.mjs` 里，测试拿这个脚本去跑一个个真的小仓库：标签在 main 上（过）、老提交上的标签（过）、分支上的标签（不过）、版本对不上（不过）、标签不存在（不过）、标签名不是版本号（不过）、改了规则（不过）、改了工作流（不过）、运行的工作流不是 main 上那个（不过）、Release 说的提交和标签说的不是一个（不过）。
 - **顺手去掉了一个没用的设置。** `setup-node` 的 `package-manager-cache` 不是它的参数（它认的是 `cache`），写了会被 GitHub 当作不认识的参数忽略；测试却一直在检查这一行在不在。现在不写了，测试也不检查了。
+- **预发布不发了。** GitHub 的 `release: published` 对预发布同样触发，而 npm 会把发上去的版本变成所有人默认拿到的那个——一个 RC 会直接变成 everybody 的 `latest`。现在预发布的 Release 那个活不跑，标签里带 `-rc.1` 这种后缀的也不发。
 - npm 那边不变：还是那个 trusted publisher（GitHub Actions，`liuzq1103` / `magpie-page-token-widget` / `publish.yml`，Environment 留空，允许 `npm publish`）。
 - 这一版没有改组件：服务和脚本都和 0.4.16 一样，升级的人不用做任何事。
 

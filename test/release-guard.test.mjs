@@ -126,6 +126,20 @@ test('a tag whose name is not a version may not go out', (t) => {
   );
 });
 
+test('a pre-release may not go out', (t) => {
+  const folder = repository('1.0.0');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  tag(folder, 'v1.0.0-rc.1');
+  // A pre-release of GitHub fires the workflow as well, and npm would make
+  // the pre-release the version everybody gets.
+  const result = check(folder, { tag: 'v1.0.0-rc.1' });
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.problems.some((problem) => problem.includes('is not the name of a version')),
+    result.problems.join(' / '),
+  );
+});
+
 test('a release that changed the rules may not go out', (t) => {
   const folder = repository('1.0.0');
   t.after(() => rmSync(folder, { recursive: true, force: true }));

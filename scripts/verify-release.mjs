@@ -17,7 +17,9 @@ import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const TAG_PATTERN = /^(?:v)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
+// Only a plain version goes out. A pre-release would become the version
+// everybody gets, and the pre-releases of GitHub fire this workflow as well.
+const TAG_PATTERN = /^(?:v)?(\d+\.\d+\.\d+)$/;
 
 // The files that hold the rules. A release that changed one of them would be
 // published under other rules than the ones that are written down here, so

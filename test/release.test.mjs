@@ -63,7 +63,8 @@ test('the package says which repository it comes from', async () => {
   const pkg = JSON.parse(await read('package.json'));
   // The trusted publisher is bound to one repository, and npm reads that
   // repository out of this field. A package without it cannot be published
-  // from GitHub Actions at all.
-  assert.match(pkg.repository?.url || '', /github\.com/);
+  // from GitHub Actions at all, and a package that names another repository
+  // is published under another identity: the name is written down here.
+  assert.match(pkg.repository?.url || '', /github\.com\/liuzq1103\/magpie-page-token-widget/);
   assert.ok(pkg.version, 'the package has a version');
 });

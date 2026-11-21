@@ -305,7 +305,7 @@ for this one run, so the code that is about to be published never gets to touch 
 The first job asks five things before anything is published, and the rules are in
 `scripts/verify-release.mjs`:
 
-1. the tag is the name of a version;
+1. the tag is the name of a version (a pre-release is not one: `0.4.17-rc.1` does not go out);
 2. the tag is a tag of this repository (not a branch that happens to have the same name), and it
    says which commit it means;
 3. that commit is on `main`;
@@ -315,7 +315,8 @@ The first job asks five things before anything is published, and the rules are i
 
 If one of them does not hold, nothing is published. The rules are run against little
 repositories of their own (`test/release-guard.test.mjs`), so a rule that changes turns the
-tests red.
+tests red. A pre-release is not published to npm either: npm would make it the version
+everybody gets.
 
 npm needs to be told once: in the settings of the package (https://www.npmjs.com/settings) under
 **Trusted Publisher** choose GitHub Actions, and fill in **Organization or user** with

@@ -307,13 +307,13 @@ npm test
 
 第一个活在发之前问五件事，规则都写在 `scripts/verify-release.mjs` 里：
 
-1. 标签是版本号的名字；
+1. 标签是版本号的名字（预发布不算：`0.4.17-rc.1` 这种不发）；
 2. 标签真的是这个仓库里的标签（不是碰巧同名的分支），并且它说的是哪个提交；
 3. 那个提交在 `main` 上；
 4. 那个提交的 `package.json` 里的版本号就是标签里的版本号；
 5. 那个提交没有改掉规则本身——`publish.yml` 和 `scripts/verify-release.mjs` 跟 `main` 上的一字不差。
 
-有一处不对，它就不发。这些规则是拿真的小仓库跑出来的（`test/release-guard.test.mjs`），所以规则一改，测试就红。
+有一处不对，它就不发。这些规则是拿真的小仓库跑出来的（`test/release-guard.test.mjs`），所以规则一改，测试就红。预发布的 Release 也不发到 npm——npm 会把它变成所有人默认拿到的那个版本。
 
 npm 那边只写一次：包的设置（https://www.npmjs.com/settings）→ **Trusted Publisher** → GitHub Actions，
 **Organization or user** 填 `liuzq1103`，**Repository** 填 `magpie-page-token-widget`，**Workflow filename** 填

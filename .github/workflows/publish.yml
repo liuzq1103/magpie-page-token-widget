@@ -94,6 +94,9 @@ jobs:
   publish:
     name: publish to npm
     needs: verify
+    # A pre-release is not published to npm: npm would make it the version
+    # everybody gets. The guard refuses such a tag as well.
+    if: github.event_name != 'release' || github.event.release.prerelease == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
