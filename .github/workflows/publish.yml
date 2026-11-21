@@ -132,4 +132,7 @@ jobs:
       # The package is published as it was packed and checked; the code of the
       # repository is not in this job, and it is not run here.
       - name: Publish to npm
-        run: npm publish dist/*.tgz
+        # The name of the file starts with "./" on purpose: without it npm
+        # reads "dist/name.tgz" as the short form of a GitHub repository
+        # (owner/name) and goes looking for it over ssh.
+        run: npm publish ./dist/*.tgz

@@ -56,7 +56,10 @@ test('the job that publishes runs no code of the repository', async () => {
   assert.doesNotMatch(job, /npm test/);
   assert.doesNotMatch(job, /npm run check:syntax/);
   assert.doesNotMatch(job, /actions\/checkout/);
-  assert.match(job, /npm publish dist\/\*\.tgz/);
+  // The "./" in front of the name of the file matters: without it npm reads
+  // "dist/name.tgz" as the short form of a GitHub repository (owner/name)
+  // and goes looking for it over ssh.
+  assert.match(job, /npm publish \.\/dist\/\*\.tgz/);
 });
 
 test('the package says which repository it comes from', async () => {
