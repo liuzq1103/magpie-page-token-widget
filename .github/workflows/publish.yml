@@ -34,17 +34,12 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: The npm of the runner can exchange the OIDC token by itself
-        run: |
-          version="$(npm --version)"
-          major="${version%%.*}"
-          rest="${version#*.}"
-          minor="${rest%%.*}"
-          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
-            echo "npm $version cannot exchange the OIDC token by itself; npm 11.5.1 or newer is needed" >&2
-            exit 1
-          fi
-          echo "npm $version"
+      # The same Node as the one that publishes, so that the tests run on the
+      # version the package is packed with and not on whatever the image of
+      # the runner happens to carry.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - id: guard
         name: The release has to be a tag on the main branch, with the version of the package
@@ -56,15 +51,21 @@ jobs:
           # The run may come from the tag; the workflow of the run has to be
           # the one of the main branch.
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          # The branch the release has to be on. It is named here, so that
+          # the rules and the checkout cannot drift apart.
+          BASE: ${{ github.event.repository.default_branch }}
         run: |
           workflow_ref="${WORKFLOW_REF#*@}"
           node scripts/verify-release.mjs \
             --tag "$TAG" \
             --expect-sha "$EXPECT_SHA" \
-            --workflow-ref "$workflow_ref"
+            --workflow-ref "$workflow_ref" \
+            --base "$BASE"
 
       - name: Take the commit of the tag
-        run: git checkout --detach "${{ steps.guard.outputs.commit }}"
+        env:
+          COMMIT: ${{ steps.guard.outputs.commit }}
+        run: git checkout --detach "$COMMIT"
 
       - name: Check the syntax of every source file
         run: npm run check:syntax
@@ -128,6 +129,18 @@ jobs:
           # The cache of a publishing build may hold the credentials of the
           # build, so it is not used here.
           cache: ''
+
+      - name: The npm of this job can exchange the OIDC token by itself
+        run: |
+          version="$(npm --version)"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
+            echo "npm $version cannot exchange the OIDC token by itself; npm 11.5.1 or newer is needed" >&2
+            exit 1
+          fi
+          echo "npm $version"
 
       # The package is published as it was packed and checked; the code of the
       # repository is not in this job, and it is not run here.

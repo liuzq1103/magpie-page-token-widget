@@ -140,6 +140,22 @@ test('a pre-release may not go out', (t) => {
   );
 });
 
+test('a tag whose commit has no package.json may not go out', (t) => {
+  const folder = repository('1.0.0');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  git(['checkout', '-b', 'side'], folder);
+  rmSync(path.join(folder, 'package.json'));
+  git(['add', '-A'], folder);
+  git(['commit', '-m', 'the package.json is gone'], folder);
+  tag(folder, 'v2.0.0');
+  const result = check(folder, { tag: 'v2.0.0' });
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.problems.some((problem) => problem.includes('package.json cannot be read')),
+    result.problems.join(' / '),
+  );
+});
+
 test('a release that changed the rules may not go out', (t) => {
   const folder = repository('1.0.0');
   t.after(() => rmSync(folder, { recursive: true, force: true }));

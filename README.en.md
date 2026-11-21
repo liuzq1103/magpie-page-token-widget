@@ -293,8 +293,8 @@ trusted publisher), so **no long-lived token has to be kept anywhere**.
 
 1. Change the version in `package.json` and write the `CHANGELOG.md`.
 2. Let `npm test` pass, then commit and push to `main`.
-3. Tag and push the tag: `git tag -a v0.4.17 -m "v0.4.17"`, then `git push origin v0.4.17`.
-4. Publish a Release (`gh release create v0.4.17`). `.github/workflows/publish.yml` sees the
+3. Tag and push the tag: `git tag -a v0.4.18 -m "v0.4.18"`, then `git push origin v0.4.18`.
+4. Publish a Release (`gh release create v0.4.18`). `.github/workflows/publish.yml` sees the
    Release and publishes the package to npm by itself.
 
 The workflow has two jobs. The first one reads the code, asks the questions and packs the
@@ -324,3 +324,12 @@ npm needs to be told once: in the settings of the package (https://www.npmjs.com
 `publish.yml`. Leave the **Environment name** empty and allow `npm publish`. Every one of these
 has to be written here letter by letter: npm refuses the publish when one of them is different,
 and it only says so in the log of the run.
+
+The guard stops a slip of the hand, not a person with a plan. What it does hold is this: the commit
+that goes out is on `main`; that commit did not change the rules; the package that goes out is the one
+the guard checked. But the workflow of a `release` event runs **from the tag** (the provenance on npm
+says `workflow.ref = refs/tags/…`), so a tag that carries its own rules still gets past itself — the
+rules that run are the ones that were changed. The other way round: whoever can push a tag can write
+to the repository anyway, and could change the workflow on `main` in the first place. So what the
+guard really buys is **a release that was made by accident, or off `main`, is stopped**; it is not
+there to stop a maintainer with write access who means to.

@@ -36,6 +36,12 @@ test('the package is published with the identity of GitHub Actions', async () =>
   assert.match(workflow, /^  verify:$/m);
   assert.match(workflow, /^  publish:$/m);
   assert.match(workflow, /needs: verify/);
+  // The branch the release has to be on is named in the workflow, so that
+  // the rules and the checkout cannot drift apart.
+  assert.match(workflow, /--base "\$BASE"/);
+  // Both jobs use the same Node, so that the tests run on the version the
+  // package is packed with.
+  assert.equal((workflow.match(/node-version: '24'/g) || []).length, 2);
   // The rules are run before the code of the release is even tested.
   const guard = workflow.indexOf('node scripts/verify-release.mjs');
   const tests = workflow.indexOf('run: npm test');
@@ -56,6 +62,9 @@ test('the job that publishes runs no code of the repository', async () => {
   assert.doesNotMatch(job, /npm test/);
   assert.doesNotMatch(job, /npm run check:syntax/);
   assert.doesNotMatch(job, /actions\/checkout/);
+  // The npm that exchanges the OIDC token is the one of this job, so this is
+  // where its version is looked at.
+  assert.match(job, /npm --version/);
   // The "./" in front of the name of the file matters: without it npm reads
   // "dist/name.tgz" as the short form of a GitHub repository (owner/name)
   // and goes looking for it over ssh.

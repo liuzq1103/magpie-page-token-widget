@@ -300,8 +300,8 @@ npm test
 
 1. 改 `package.json` 里的版本号，写 `CHANGELOG.md`。
 2. `npm test` 过了以后提交、推到 `main`。
-3. 打标签推上去：`git tag -a v0.4.17 -m "v0.4.17"`，再 `git push origin v0.4.17`。
-4. 发一个 Release（`gh release create v0.4.17`）。`.github/workflows/publish.yml` 看见 Release 就自己把包发到 npm。
+3. 打标签推上去：`git tag -a v0.4.18 -m "v0.4.18"`，再 `git push origin v0.4.18`。
+4. 发一个 Release（`gh release create v0.4.18`）。`.github/workflows/publish.yml` 看见 Release 就自己把包发到 npm。
 
 工作流分成两个活。第一个活读代码、问问题、打包；第二个活只拿到打包好的那个包发到 npm，**仓库里的代码一行都不在第二个活里跑**。只有第二个活手里有那个一次性的 OIDC 令牌，所以待发布的代码碰不到它。
 
@@ -319,3 +319,9 @@ npm 那边只写一次：包的设置（https://www.npmjs.com/settings）→ **T
 **Organization or user** 填 `liuzq1103`，**Repository** 填 `magpie-page-token-widget`，**Workflow filename** 填
 `publish.yml`，**Environment name** 留空，并且允许 `npm publish`。这几项和这里要一字不差，对不上 npm 会
 拒绝，而它只在日志里说一句。
+
+守卫挡的是**手滑**，不是**有心的人**。它保证的是：发出去的那个提交在 `main` 上；规则没被这个提交改过；
+发出去的包是守卫验过的那一份。但 Release 事件触发的工作流是从**标签**上跑的（npm 的 provenance 里写着
+`workflow.ref = refs/tags/…`），所以一个自带规则标签的发布仍然绕得过自己——跑起来的就是那份被改过的规则。
+反过来说，能推标签的人本来就有仓库的写权限，本来就能改 `main` 上的工作流。所以这套守卫的真正保障是
+**防误操作、防离 `main` 的发布**，不是防有写权限的恶意维护者。
