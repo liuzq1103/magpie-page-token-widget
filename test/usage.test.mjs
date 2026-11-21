@@ -142,7 +142,8 @@ test('a window keeps the name it has', () => {
 });
 
 // A name that is a word of the prototype is a name like any other: it gets
-// the plain "Quota", and not something the table happens to inherit.
+// the plain "Quota", and not something the table happens to inherit. Three
+// of them on one card are numbered, so that they can be told apart.
 test('a window whose name is a word of the prototype gets the plain name', () => {
   const cards = normalizeQuotas({ data: [{
     provider: 'codex',
@@ -152,7 +153,7 @@ test('a window whose name is a word of the prototype gets the plain name', () =>
       { name: 'toString', used: 3 },
     ],
   }] });
-  assert.deepEqual(cards[0].windows.map(window => window.label), ['Quota', 'Quota', 'Quota']);
+  assert.deepEqual(cards[0].windows.map(window => window.label), ['Quota 1', 'Quota 2', 'Quota 3']);
 });
 
 // A reading that was stored comes back in with the name it was stored under.
@@ -294,4 +295,98 @@ test('a subscription carries the name the user gives it', () => {
     {},
   );
   assert.equal(plain.subscriptions[0].label, 'codex · alpha');
+});
+
+// A vendor that is not written down in the plugin is a vendor of its own. The
+// name Magpie gives it is the name its card carries, and its quota is read
+// like the quota of any other subscription.
+test('a vendor that is not written down in the plugin is a vendor of its own', () => {
+  const answer = { data: [{
+    provider: 'qoder-cn',
+    name: 'Qoder CN',
+    kind: 'subscription',
+    plan: 'personal_professional',
+    user: '01a1fe89-c345-7246-86ae-4e0e03678e7f',
+    alias: '180****2463',
+    windows: [
+      { name: 'Total credits', used: 0.958, remaining: 99.04, limit: 2400, amount: 23 },
+      { name: 'Credits', used: 0, remaining: 100, limit: 2000, amount: 0 },
+    ],
+    readAt: iso(),
+  }] };
+  const cards = resolveQuotas(answer, {}, []);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].provider, 'qoder-cn');
+  assert.equal(cards[0].vendor, 'Qoder CN');
+  assert.equal(cards[0].label, 'Qoder CN · 180****2463');
+  assert.equal(cards[0].plan, 'personal_professional');
+  assert.equal(cards[0].windows.length, 2);
+  assert.equal(cards[0].windows[0].usedPercent, 0.958);
+  assert.equal(cards[0].windows[0].remainingPercent, 99.042);
+});
+
+// A subscription that is removed in Magpie is gone. The answer of the gateway
+// is the list of the subscriptions that exist, so a vendor it does not
+// mention is not brought back from the reading that was stored.
+test('a subscription that is removed is not brought back', () => {
+  const live = resolveQuotas({ data: [{ provider: 'qoder-cn', name: 'Qoder CN', windows: [{ name: 'Credits', used: 1 }] }] }, {}, []);
+  assert.equal(live.length, 1);
+  const stored = sanitizeCachedLabels(live, 'quotas');
+  // The gateway answers with the other subscriptions; the removed one is not
+  // among them.
+  const after = resolveQuotas({ data: [{ provider: 'codex', user: 'alpha@example.com', windows: [{ name: '5 hours', used: 1 }] }] }, {}, stored);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].provider, 'codex');
+  assert.equal(after.some(card => card.provider === 'qoder-cn'), false);
+});
+
+// The total of the day of a vendor that is not written down is found as well:
+// the card and the row of the usage are matched by the name of the vendor.
+test('the total of the day of a vendor that is not written down is found', () => {
+  const view = project(
+    {
+      parts: {
+        quotas: { data: [{
+          id: 'qoder-cn', provider: 'qoder-cn', label: 'Qoder CN', vendor: 'Qoder CN',
+          account: null, accountUsage: null, accountUsageDay: null, accounts: 1,
+          plan: '', updatedAt: iso(), stale: false,
+          windows: [{ label: 'Credits', usedPercent: 10, remainingPercent: 90, resetsAt: null }],
+        }], observedAt: iso() },
+        today: { data: {
+          metrics: { totalTokens: 4321, requests: 12 },
+          providers: [{ label: 'Qoder CN', totalTokens: 777, requests: 9 }],
+        }, observedAt: iso(), periodDay: shanghaiDay(Date.now()) },
+        week: { data: { metrics: {}, trend: [], models: [], agents: [], providers: [], computers: [] }, observedAt: iso() },
+      },
+      failures: {},
+    },
+    Date.now(),
+    { subscriptions: ['*'] },
+    {},
+  );
+  assert.equal(view.subscriptions.length, 1);
+  assert.equal(view.subscriptions[0].usage.today.totalTokens, 777);
+  assert.equal(view.subscriptions[0].usage.today.requests, 9);
+});
+
+// Several windows of one card can carry the same plain name. They are
+// numbered, so that they can be told apart, and the number survives the way
+// back through the reading that was stored.
+test('windows that carry the same plain name are numbered', () => {
+  const answer = { data: [{
+    provider: 'qoder-cn',
+    name: 'Qoder CN',
+    windows: [
+      { name: 'Total credits', used: 0.958 },
+      { name: 'Credits', used: 0 },
+      { name: 'Add-on credits', used: 0.575 },
+    ],
+  }] };
+  const cards = resolveQuotas(answer, {}, []);
+  assert.deepEqual(cards[0].windows.map(window => window.label), ['Quota 1', 'Quota 2', 'Quota 3']);
+  // The reading that was stored comes back with the names it was stored
+  // under, and the numbers are still there.
+  const stored = sanitizeCachedLabels(cards, 'quotas');
+  const again = resolveQuotas({}, {}, stored);
+  assert.deepEqual(again[0].windows.map(window => window.label), ['Quota 1', 'Quota 2', 'Quota 3']);
 });
