@@ -42,6 +42,12 @@ test('the package is published with the identity of GitHub Actions', async () =>
   // Both jobs use the same Node, so that the tests run on the version the
   // package is packed with.
   assert.equal((workflow.match(/node-version: '24'/g) || []).length, 2);
+  // The run has to say which workflow it is, or the rule about the workflow
+  // of the run cannot be checked at all.
+  assert.match(workflow, /--workflow-ref "\$workflow_ref"/);
+  // A pre-release must not reach npm: npm would make it the version that
+  // everybody gets.
+  assert.match(workflow, /github\.event\.release\.prerelease == false/);
   // The rules are run before the code of the release is even tested.
   const guard = workflow.indexOf('node scripts/verify-release.mjs');
   const tests = workflow.indexOf('run: npm test');

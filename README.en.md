@@ -318,6 +318,19 @@ repositories of their own (`test/release-guard.test.mjs`), so a rule that change
 tests red. A pre-release is not published to npm either: npm would make it the version
 everybody gets.
 
+There are two kinds of pre-release, and they take two different roads: a tag whose **name**
+carries a suffix (`v0.4.19-rc.1`) is refused by the guard right away, so that run is **red**
+(the check did not hold) and nothing goes out; a tag that is a clean version number but whose
+Release is marked as a pre-release is let through by the guard, and the job that publishes is
+**skipped**, so that run is **green** and nothing goes out either. Neither of them publishes;
+the only difference is whether the run looks red or green.
+
+The fifth one compares against the copy on `main` **at this moment**: if `main` moved on
+after the tag was made, and that move changed the rules, then publishing that tag a second
+time is refused (publishing it once is right: the rules in the tag are word for word the ones
+`main` had then). This is meant — it stops an old tag from carrying out a version that was
+released after the rules had already changed.
+
 npm needs to be told once: in the settings of the package (https://www.npmjs.com/settings) under
 **Trusted Publisher** choose GitHub Actions, and fill in **Organization or user** with
 `liuzq1103`, **Repository** with `magpie-page-token-widget` and **Workflow filename** with

@@ -52,7 +52,10 @@ const tag = (folder, name, at) => {
   return name;
 };
 
-const check = (folder, options = {}) => verify({ cwd: folder, base: 'main', ...options });
+// The run always says which workflow it is: the one of the tag it comes
+// from. The rule about the workflow is only checked when it is known.
+const check = (folder, options = {}) =>
+  verify({ cwd: folder, base: 'main', workflowRef: `refs/tags/${options.tag}`, ...options });
 
 test('a tag on the main branch may go out', (t) => {
   const folder = repository('1.0.0');
@@ -207,6 +210,20 @@ test('a run of another workflow may not publish', (t) => {
   );
 });
 
+test('a run that does not say which workflow it is may not publish', (t) => {
+  const folder = repository('1.0.0');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  tag(folder, 'v1.0.0');
+  // A run that does not say which workflow it is cannot be compared with the
+  // one of the branch, so it does not go out.
+  const result = check(folder, { tag: 'v1.0.0', workflowRef: '' });
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.problems.some((problem) => problem.includes('the workflow of the run is not known')),
+    result.problems.join(' / '),
+  );
+});
+
 test('a release that names another commit may not publish', (t) => {
   const folder = repository('1.0.0');
   t.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -219,15 +236,35 @@ test('a release that names another commit may not publish', (t) => {
   );
 });
 
+test('a release that names the tag itself may go out', (t) => {
+  const folder = repository('1.0.0');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  // An annotated tag is an object of its own, and the release may name that
+  // object instead of the commit it stands for.
+  git(['tag', '-a', '-m', 'v1.0.0', 'v1.0.0'], folder);
+  const object = git(['rev-parse', 'v1.0.0'], folder);
+  const result = check(folder, { tag: 'v1.0.0', expectSha: object });
+  assert.deepEqual(result.problems, []);
+  assert.equal(result.ok, true);
+});
+
 test('the script says no out loud, and says yes out loud', (t) => {
   const folder = repository('1.0.0');
   t.after(() => rmSync(folder, { recursive: true, force: true }));
   tag(folder, 'v1.0.0');
-  const good = spawnSync(process.execPath, [guardPath, '--tag', 'v1.0.0', '--cwd', folder], { encoding: 'utf8' });
+  const good = spawnSync(
+    process.execPath,
+    [guardPath, '--tag', 'v1.0.0', '--workflow-ref', 'refs/tags/v1.0.0', '--cwd', folder],
+    { encoding: 'utf8' },
+  );
   assert.equal(good.status, 0, good.stderr);
   assert.match(good.stdout, /is the commit/);
 
-  const bad = spawnSync(process.execPath, [guardPath, '--tag', 'v9.9.9', '--cwd', folder], { encoding: 'utf8' });
+  const bad = spawnSync(
+    process.execPath,
+    [guardPath, '--tag', 'v9.9.9', '--workflow-ref', 'refs/tags/v1.0.0', '--cwd', folder],
+    { encoding: 'utf8' },
+  );
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /this release may not go out/);
 });

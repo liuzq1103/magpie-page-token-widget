@@ -83,10 +83,17 @@ export function verify(options = {}) {
   const commit = resolved.stdout;
   result.commit = commit;
 
-  if (options.expectSha && options.expectSha !== commit) {
-    problems.push(
-      `the tag "${tag}" means the commit ${commit.slice(0, 12)}, and the release says ${options.expectSha.slice(0, 12)}`,
-    );
+  if (options.expectSha) {
+    // The release names a commit; it may name it as the tag object of an
+    // annotated tag. Both are peeled to the commit they stand for, so that
+    // the same release is not refused for the way it is written down.
+    const named = run(['rev-parse', '--verify', '--quiet', `${options.expectSha}^{commit}`], cwd);
+    const given = named.status === 0 && named.stdout ? named.stdout : options.expectSha;
+    if (given !== commit) {
+      problems.push(
+        `the tag "${tag}" means the commit ${commit.slice(0, 12)}, and the release says ${options.expectSha.slice(0, 12)}`,
+      );
+    }
   }
 
   // The whole history of the main branch is needed to say whether a commit
@@ -152,7 +159,12 @@ export function verify(options = {}) {
 
   // The workflow that is running has to be the trusted one as well: the run
   // may come from the tag, and a tag may carry another workflow.
-  if (options.workflowRef) {
+  if (!options.workflowRef) {
+    // Not knowing which workflow is running is not a pass: the check below
+    // would simply be skipped, and a run that does not say what it is may go
+    // out under rules it never showed.
+    problems.push('the workflow of the run is not known, so it cannot be said whether the release goes out under the trusted rules');
+  } else {
     const running = run(['show', `${options.workflowRef}:.github/workflows/publish.yml`], cwd);
     const trusted = run(['show', `${baseRef}:.github/workflows/publish.yml`], cwd);
     if (running.status !== 0) {
