@@ -518,6 +518,15 @@ import { pairingLeft, remainingText } from './timing.mjs';
     const chosen = new Set(state.display?.subscriptions || []);
     const all = chosen.has('*');
     const items = state.subscriptions || [];
+    // The note says which of the two ways is in use, so that a subscription
+    // that does not show up is not a mystery.
+    const modeNote = following => {
+      const mode = element('subMode');
+      if (!mode) return;
+      mode.textContent = following
+        ? '现在跟着 Magpie 的订阅列表走：在 Magpie 里新增的订阅，下一次刷新就出现；删掉的也自己消失。'
+        : '现在只显示勾上的这几家：在 Magpie 里新增的订阅不会自己出现，要在这里勾上才显示；勾上第一行的「全部订阅」就能让它跟着 Magpie 走。';
+    };
     // Every account knows the vendor it belongs to. A vendor that is chosen
     // as a whole stands at the place of its first account.
     const familyOf = new Map(items.map(subscription => [subscription.id, subscription.provider || subscription.id]));
@@ -586,7 +595,9 @@ import { pairingLeft, remainingText } from './timing.mjs';
       // followed, so one that is added shows up and one that is removed goes
       // away by itself. The rows below it are the ones that are picked.
       const follow = list.querySelector('input.follow');
-      const next = follow && follow.checked ? ['*'] : collect();
+      // The star says "and everything else", and the subscriptions that are
+      // written down after it keep the order the user has given them.
+      const next = follow && follow.checked ? ['*', ...collect()] : collect();
       if (!next.length) {
         // Nothing would be left on the widget, so the last one is put back.
         if (input) input.checked = true;
@@ -614,8 +625,12 @@ import { pairingLeft, remainingText } from './timing.mjs';
             const grip = row.querySelector('.grip');
             if (!grip) continue;
             grip.draggable = !following;
-            grip.title = following ? '全部订阅时，顺序跟着 Magpie 的列表走' : '拖着换顺序';
+            grip.title = following ? '全部订阅时，顺序跟着写下来的那几行走' : '拖着换顺序';
           }
+          // The note says which of the two ways is in use. It is written
+          // again here: the rows are not drawn again, so it would still
+          // speak of the way that was left behind.
+          modeNote(following);
         }
         saveState('subNote', 'ok', '已经记下，手机上的组件下一次刷新就会跟着变。');
       } catch {
@@ -645,7 +660,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
       const grip = document.createElement('span');
       grip.className = 'grip';
       grip.textContent = '⠿';
-      grip.title = all ? '全部订阅时，顺序跟着 Magpie 的列表走' : '拖着换顺序';
+      grip.title = all ? '全部订阅时，顺序跟着写下来的那几行走' : '拖着换顺序';
       grip.draggable = !all;
       const input = document.createElement('input');
       input.type = 'checkbox';
@@ -756,14 +771,7 @@ import { pairingLeft, remainingText } from './timing.mjs';
       row.append(label, rename);
       list.append(row);
     }
-    // The note says which of the two ways is in use, so that a subscription
-    // that does not show up is not a mystery.
-    const mode = element('subMode');
-    if (mode) {
-      mode.textContent = all
-        ? '现在跟着 Magpie 的订阅列表走：在 Magpie 里新增的订阅，下一次刷新就出现；删掉的也自己消失。'
-        : '现在只显示勾上的这几家：在 Magpie 里新增的订阅不会自己出现，要在这里勾上才显示；勾上第一行的「全部订阅」就能让它跟着 Magpie 走。';
-    }
+    modeNote(all);
     list.onchange = (event) => {
       // The name of a subscription is saved by its own field.
       if (event.target && event.target.type === 'text') return;

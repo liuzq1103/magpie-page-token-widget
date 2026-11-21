@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayOptions, normalizeQuotas, project, resolveQuotas, sanitizeCachedLabels, shanghaiDay } from '../lib/normalize.mjs';
+import { displayOptions, normalizeQuotas, normalizeUsageSummary, project, resolveQuotas, sanitizeCachedLabels, sanitizeCachedSummary, shanghaiDay } from '../lib/normalize.mjs';
 
 const iso = (offset = 0) => new Date(Date.now() + offset).toISOString();
 
@@ -367,6 +367,163 @@ test('the total of the day of a vendor that is not written down is found', () =>
   assert.equal(view.subscriptions.length, 1);
   assert.equal(view.subscriptions[0].usage.today.totalTokens, 777);
   assert.equal(view.subscriptions[0].usage.today.requests, 9);
+});
+
+// The same, but the way the number really comes in: the gateway answers with
+// the vendors of the day, and a vendor that has no name of its own yet is
+// counted under a name that is not written down. The card of that vendor and
+// the row of its usage are found by the family they share.
+test('the total of the day of a new vendor is found the way it really comes in', () => {
+  const today = normalizeUsageSummary({
+    input: 100, output: 20, cache_read: 0, cache_write: 0, calls: 5,
+    providerKeys: [{ provider: 'qoder-cn', calls: 5, input: 100, output: 20 }],
+    accounts: [],
+  });
+  assert.equal(today.providers.length, 1);
+  assert.equal(today.providers[0].family, 'qoder-cn');
+  const cards = resolveQuotas({ data: [{
+    provider: 'qoder-cn',
+    name: 'Qoder CN',
+    windows: [{ name: 'Credits', used: 1 }],
+  }] }, {}, []);
+  const view = project({
+    parts: {
+      quotas: { data: cards, observedAt: iso() },
+      today: { data: today, observedAt: iso(), periodDay: shanghaiDay(Date.now()) },
+      week: { data: { metrics: {}, trend: [], models: [], agents: [], providers: [], computers: [] }, observedAt: iso() },
+    },
+    failures: {},
+  }, Date.now(), { subscriptions: ['*'] }, {});
+  assert.equal(view.subscriptions.length, 1);
+  assert.equal(view.subscriptions[0].usage.today.requests, 5);
+  assert.equal(view.subscriptions[0].usage.today.totalTokens, 120);
+});
+
+// A vendor whose id carries a dot or an underscore is a vendor like any
+// other: it is a vendor of its own and it is shown.
+test('a vendor whose id carries a dot or an underscore is a vendor of its own', () => {
+  const cards = resolveQuotas({ data: [{
+    provider: 'openai_compatible',
+    name: 'OpenAI Compatible',
+    windows: [{ name: 'Credits', used: 1 }],
+  }] }, {}, []);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].provider, 'openai_compatible');
+  assert.equal(cards[0].vendor, 'OpenAI Compatible');
+});
+
+// A plan that is written with capitals and with a space is a plan like any
+// other: it is shown as it is.
+test('a plan that is written in capitals is shown', () => {
+  const cards = resolveQuotas({ data: [{
+    provider: 'qoder-cn',
+    name: 'Qoder CN',
+    plan: 'Pro Plan',
+    windows: [{ name: 'Credits', used: 1 }],
+  }] }, {}, []);
+  assert.equal(cards[0].plan, 'Pro Plan');
+});
+
+// An answer that holds nothing that can be read is not an answer about which
+// subscriptions exist: the reading that was stored is shown instead of
+// nothing at all.
+test('an answer that holds nothing readable keeps the reading that was stored', () => {
+  const stored = sanitizeCachedLabels(resolveQuotas({ data: [{
+    provider: 'codex',
+    name: 'Codex',
+    user: 'alpha@example.com',
+    windows: [{ name: '5 hours', used: 1 }],
+  }] }, {}, []), 'quotas');
+  const after = resolveQuotas({ data: [{ provider: 'not a vendor', windows: [{ name: 'x', used: 1 }] }] }, {}, stored);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].provider, 'codex');
+});
+
+// The order the user has given is kept when the whole list of Magpie is
+// followed: the star says "and everything else", and what is written down
+// keeps its place.
+test('the order that was written down is kept when everything is followed', () => {
+  const cards = [
+    { id: 'codex@a', provider: 'codex', label: 'Codex · a', accounts: 2, updatedAt: iso(), windows: [{ label: '5 hours', usedPercent: 1, remainingPercent: 99, resetsAt: null }] },
+    { id: 'codex@b', provider: 'codex', label: 'Codex · b', accounts: 2, updatedAt: iso(), windows: [{ label: '5 hours', usedPercent: 1, remainingPercent: 99, resetsAt: null }] },
+    { id: 'minimax', provider: 'minimax', label: 'MiniMax', accounts: 1, updatedAt: iso(), windows: [{ label: '4 hours', usedPercent: 1, remainingPercent: 99, resetsAt: null }] },
+    { id: 'qoder-cn', provider: 'qoder-cn', label: 'Qoder CN', accounts: 1, updatedAt: iso(), windows: [{ label: 'Quota 1', usedPercent: 1, remainingPercent: 99, resetsAt: null }] },
+  ];
+  const view = project({
+    parts: {
+      quotas: { data: cards, observedAt: iso() },
+      today: { data: { metrics: {}, providers: [] }, observedAt: iso(), periodDay: shanghaiDay(Date.now()) },
+      week: { data: { metrics: {}, trend: [], models: [], agents: [], providers: [], computers: [] }, observedAt: iso() },
+    },
+    failures: {},
+  }, Date.now(), { subscriptions: ['*', 'codex@b', 'codex@a'] }, {});
+  assert.deepEqual(view.subscriptions.map(card => card.id), ['codex@b', 'codex@a', 'minimax', 'qoder-cn']);
+});
+
+// A vendor whose id is a word of the prototype is counted like any other:
+// the second card of that vendor is told apart from the first one.
+test('a vendor whose id is a word of the prototype is counted like any other', () => {
+  const cards = normalizeQuotas({ data: [
+    { provider: 'constructor', name: 'Constructor', windows: [{ name: 'Credits', used: 1 }] },
+    { provider: 'constructor', name: 'Constructor', windows: [{ name: 'Credits', used: 2 }] },
+  ] });
+  assert.equal(cards.length, 2);
+  assert.deepEqual(cards.map(card => card.id), ['constructor', 'constructor-2']);
+  assert.equal(cards[1].label, 'Constructor 2');
+});
+
+// The cards of the vendors that are not known are ordered by the id of their
+// vendor, so that the cards of one vendor stay together and do not change
+// places when the reading is written down and read again.
+test('the cards of a vendor that is not known stay together', () => {
+  const cards = normalizeQuotas({ data: [
+    { provider: 'beta-vendor', name: 'Beta', user: 'alice@example.com', windows: [{ name: 'Credits', used: 1 }] },
+    { provider: 'alpha-vendor', name: 'Alpha', user: 'bob@example.com', windows: [{ name: 'Credits', used: 1 }] },
+  ] });
+  assert.deepEqual(cards.map(card => card.provider), ['alpha-vendor', 'beta-vendor']);
+});
+
+// A reading that was stored is found for the vendor as Magpie writes it down
+// and for the family it belongs to: "minimax-cn" and "minimax" are one
+// family, and the reading of one of them is the reading of the other. The
+// name Magpie writes down may change; the family does not.
+test('a reading that was stored is found for the family of the vendor', () => {
+  const at = iso(-60_000);
+  const cache = {
+    'minimax/plan': {
+      at,
+      quota: { provider: 'minimax', windows: [{ name: '4 hours', used: 1 }] },
+    },
+  };
+  const [card] = normalizeQuotas({ data: [
+    { provider: 'minimax-cn', name: 'MiniMax (China)', windows: [{ name: '4 hours', used: 1 }] },
+  ] }, cache);
+  assert.equal(card.updatedAt, at);
+});
+
+// The ranking of the vendors says the name that Magpie gives a vendor that
+// is not written down in the plugin, and that name survives the way back
+// through the reading that was stored.
+test('the ranking of a new vendor carries the name Magpie gives it', () => {
+  const names = { 'qoder-cn': 'Qoder CN' };
+  const summary = normalizeUsageSummary({
+    input: 10, output: 5, cache_read: 0, cache_write: 0, calls: 2,
+    providerKeys: [{ provider: 'qoder-cn', calls: 2, input: 10, output: 5 }],
+    accounts: [],
+  }, names);
+  assert.equal(summary.providers[0].label, 'Qoder CN');
+  assert.equal(summary.providers[0].family, 'qoder-cn');
+  // The reading that was stored comes back with the name it was stored under.
+  const stored = sanitizeCachedSummary(summary);
+  assert.equal(stored.providers[0].label, 'Qoder CN');
+  // A vendor that is not written down keeps its own id when there is no name
+  // of it: an id says more than "Unknown" does.
+  const plain = normalizeUsageSummary({
+    input: 1, output: 0, cache_read: 0, cache_write: 0, calls: 1,
+    providerKeys: [{ provider: 'qoder-cn', calls: 1, input: 1 }],
+    accounts: [],
+  });
+  assert.equal(plain.providers[0].label, 'qoder-cn');
 });
 
 // Several windows of one card can carry the same plain name. They are

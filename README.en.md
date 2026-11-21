@@ -194,6 +194,8 @@ The account in a parameter is the account's name as it is right now. The console
 
 There is a line of small text under that block now, saying whether the plugin follows Magpie or shows only the subscriptions that are ticked. While only the ticked ones are shown, a subscription that is added in Magpie does not come out on its own: it has to be ticked here first.
 
+While the plugin follows Magpie, the order you have given stays: the subscriptions that are written down come first, in your order, and a new one comes after them. A vendor carries the name Magpie gives it (`Qoder CN`), and the vendor ranking on the phone carries the same name instead of "Unknown".
+
 **The parameter is optional now**: the console has a "widget" block with two blocks of their own — **what it shows** picks whether the number is what is remaining or what is used, and every size of the widget follows it; **which card the small one shows** picks the card of the small widget. Every widget follows that choice, and there is no parameter to type in Scriptable any more. The parameter still works: when it is filled in it wins, for that one widget only; when it is empty the widget listens to the console.
 
 **What "follows the first one with a number" means**: when the gateway did not report an account for today, that card has only a dash on it (not a zero — "not known"). A small widget that was not told which card to show follows **the first card that has a number for today**. In the "widget" block of the plugin page, an account the gateway did not report today is marked "no number today", and another card can be picked by hand.

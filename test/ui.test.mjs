@@ -445,8 +445,9 @@ test('the console offers to follow the subscriptions of Magpie', async () => {
   assert.match(script, /followInput\.value = '\*'/);
   assert.match(script, /全部订阅（跟着 Magpie 走）/);
   // The list that is sent is the whole one when that row is ticked, and the
-  // rows below it only decide when it is not.
-  assert.match(script, /follow && follow\.checked \? \['\*'\] : collect\(\)/);
+  // rows below it only decide when it is not. The subscriptions that are
+  // written down after the star keep the order the user has given them.
+  assert.match(script, /follow && follow\.checked \? \['\*', \.\.\.collect\(\)\] : collect\(\)/);
   // The first row is not a subscription of its own: it is not written down
   // with the others.
   assert.match(script, /!input\.classList\.contains\('follow'\)/);

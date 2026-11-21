@@ -30,4 +30,6 @@ jobs:
         run: npm pack --dry-run
 
       - name: Look for whitespace errors
-        run: git diff --check
+        # The checkout is clean, so a diff of the working tree is always
+        # empty. The commit that was pushed is the one that is looked at.
+        run: git show --check HEAD
