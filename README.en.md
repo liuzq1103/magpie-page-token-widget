@@ -192,6 +192,12 @@ The account in a parameter is the account's name as it is right now. The console
 
 **A subscription that is added shows up by itself**: the plugin no longer writes down which vendors there are. Every subscription Magpie knows is shown: add one there (Qoder, say) and a row for it appears in "which subscriptions"; tick the first row, "all subscriptions", or tick that row, and it is on the widget at the next refresh; remove one there and it goes away by itself. The first row of that block is "all subscriptions (follow Magpie)" — with it ticked there is no list to keep.
 
+**You can pick while you follow**: unticking a row hides that subscription, and the hiding is remembered — it does not come back by itself, not even if it is removed from Magpie and added again. Five subscriptions and you want four of them on the phone (no minimax)? Untick minimax. The order is yours in both ways: drag the dots on the left, the subscriptions that are written down come first in your order, and a new one comes after them.
+
+**A "refresh subscriptions" button**: the button above the list reads the gateway again at once and shows which subscriptions there are now; a new one is marked "new". You do not wait for the next reading. When the gateway does not answer, the page says so plainly and keeps the list it had — an old list is never passed for a new one.
+
+A subscription you removed from Magpie as a whole is taken off the list of the turned-off ones: it is no longer one of the ones you turned off, and when you add it back it is a new one that you decide about again.
+
 There is a line of small text under that block now, saying whether the plugin follows Magpie or shows only the subscriptions that are ticked. While only the ticked ones are shown, a subscription that is added in Magpie does not come out on its own: it has to be ticked here first.
 
 While the plugin follows Magpie, the order you have given stays: the subscriptions that are written down come first, in your order, and a new one comes after them. A vendor carries the name Magpie gives it (`Qoder CN`), and the vendor ranking on the phone carries the same name instead of "Unknown".
@@ -299,8 +305,8 @@ trusted publisher), so **no long-lived token has to be kept anywhere**.
 
 1. Change the version in `package.json` and write the `CHANGELOG.md`.
 2. Let `npm test` pass, then commit and push to `main`.
-3. Tag and push the tag: `git tag -a v0.4.19 -m "v0.4.19"`, then `git push origin v0.4.19`.
-4. Publish a Release (`gh release create v0.4.19`). `.github/workflows/publish.yml` sees the
+3. Tag and push the tag: `git tag -a v0.4.20 -m "v0.4.20"`, then `git push origin v0.4.20`.
+4. Publish a Release (`gh release create v0.4.20`). `.github/workflows/publish.yml` sees the
    Release and publishes the package to npm by itself.
 
 The workflow has two jobs. The first one reads the code, asks the questions and packs the
@@ -325,7 +331,7 @@ tests red. A pre-release is not published to npm either: npm would make it the v
 everybody gets.
 
 There are two kinds of pre-release, and they take two different roads: a tag whose **name**
-carries a suffix (`v0.4.19-rc.1`) is refused by the guard right away, so that run is **red**
+carries a suffix (`v0.4.20-rc.1`) is refused by the guard right away, so that run is **red**
 (the check did not hold) and nothing goes out; a tag that is a clean version number but whose
 Release is marked as a pre-release is let through by the guard, and the job that publishes is
 **skipped**, so that run is **green** and nothing goes out either. Neither of them publishes;
