@@ -192,7 +192,7 @@ The account in a parameter is the account's name as it is right now. The console
 
 **A subscription that is added shows up by itself**: the plugin no longer writes down which vendors there are. Every subscription Magpie knows is shown: add one there (Qoder, say) and a row for it appears in "which subscriptions"; tick the first row, "all subscriptions", or tick that row, and it is on the widget at the next refresh; remove one there and it goes away by itself. The first row of that block is "all subscriptions (follow Magpie)" — with it ticked there is no list to keep.
 
-**You can pick while you follow**: unticking a row hides that subscription, and the hiding is remembered — it does not come back by itself, not even if it is removed from Magpie and added again. Five subscriptions and you want four of them on the phone (no minimax)? Untick minimax. The order is yours in both ways: drag the dots on the left, the subscriptions that are written down come first in your order, and a new one comes after them.
+**You can pick while you follow**: unticking a row hides that subscription, and the hiding is remembered — as long as it is still in Magpie, it does not come back by itself. Five subscriptions and you want four of them on the phone (no minimax)? Untick minimax. The order is yours in both ways: drag the dots on the left, the subscriptions that are written down come first in your order, and a new one comes after them.
 
 **A "refresh subscriptions" button**: the button above the list reads the gateway again at once and shows which subscriptions there are now; a new one is marked "new". You do not wait for the next reading. When the gateway does not answer, the page says so plainly and keeps the list it had — an old list is never passed for a new one.
 

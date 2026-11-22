@@ -336,6 +336,40 @@ test('the refresh is only for the computer of the service', async () => {
   });
 });
 
+test('the refresh asks the gateway again, even when a reading is on its way', async () => {
+  let quotaCalls = 0;
+  await withService({
+    // The gateway knows one subscription at first, and two a moment later:
+    // the user added the second one while the first reading was on its way.
+    '/v1/magpie/quotas?kept=1': () => {
+      quotaCalls += 1;
+      return {
+        data: quotaCalls === 1
+          ? [quotaRow('codex', 'alpha@example.com')]
+          : [quotaRow('codex', 'alpha@example.com'), quotaRow('qoder-cn', 'gamma@example.com')],
+      };
+    },
+    // The reading of the day is slow, so the reading of the quotas is held
+    // back by it, and the click of the person at the keyboard comes while a
+    // reading is still on its way.
+    '/v1/magpie/usage?period=today': async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return { calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0, providerKeys: [], accounts: [], series: [] };
+    },
+    '/v1/magpie/usage/requests?period=7d&limit=1': { calls: 10, input: 100, output: 50, cache_read: 0, cache_write: 0, by: { model: [], provider: [], agent: [] }, series: [] },
+  }, async ({ base, token }) => {
+    const answer = await post(base, '/api/v1/console/subscriptions/refresh', {}, { [TOKEN_HEADER]: token });
+    const body = await answer.json();
+    assert.equal(body.ok, true);
+    // The answer is the one of this moment: the subscription that was added
+    // while the first reading was on its way is in it. The reading that was
+    // on its way was read before the click, and its list is an old one.
+    assert.equal(body.subscriptions.some(entry => entry.id === 'qoder-cn'), true);
+    // The gateway was asked again, and not only once.
+    assert.ok(quotaCalls >= 2);
+  });
+});
+
 test('the console says which cards the phone is shown', async () => {
   await withService({
     '/v1/magpie/quotas?kept=1': { data: [quotaRow('codex', 'alpha@example.com'), quotaRow('codex', 'beta@example.com'), quotaRow('minimax', 'gamma@example.com')] },
@@ -365,6 +399,9 @@ test('a choice that turns off everything is refused', async () => {
       if ((await cards()).length === 3) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    // The service knows the subscriptions of the gateway before it can say
+    // that a choice leaves nothing.
+    assert.equal((await cards()).length, 3);
     // Every subscription the gateway knows is turned off: the widgets would
     // have nothing to show, so the choice is refused.
     const answer = await post(base, '/api/v1/console/options', {
@@ -430,6 +467,9 @@ test('a choice that turns off everything leaves the file as it was', async () =>
       if ((await cards()).length === 2) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    // The service knows the subscriptions of the gateway before it can say
+    // that a choice leaves nothing.
+    assert.equal((await cards()).length, 2);
     // One subscription is turned off: that is written down.
     const known = (await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json())
       .subscriptions.map(entry => entry.id);
@@ -524,6 +564,9 @@ test('a choice that does not match the gateway is kept even when some are turned
       if ((await cards()).length === 2) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    // The service knows the subscriptions of the gateway before the choice
+    // of the user is written down.
+    assert.equal((await cards()).length, 2);
     // One subscription is turned off and written down.
     await post(base, '/api/v1/console/options', {
       subscriptions: ['*'],
@@ -585,6 +628,9 @@ test('a refresh that takes the last visible subscription away does not blank the
       if ((await cards()).length === 2) break;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    // The service knows the subscriptions of the gateway before the choice
+    // of the user is written down.
+    assert.equal((await cards()).length, 2);
     const known = (await (await fetch(base + '/api/v1/console/state', { headers: { [TOKEN_HEADER]: token } })).json())
       .subscriptions.map(entry => entry.id);
     const codex = known.find(id => id.startsWith('codex'));
@@ -645,4 +691,3 @@ test('a subscription that was turned off stays off when its vendor gets a second
     assert.equal(onThePhone.some(id => id.startsWith('minimax')), false);
   });
 });
-

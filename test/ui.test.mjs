@@ -103,6 +103,92 @@ test('the parameter of the subscription sits on the right', async () => {
   assert.match(script, /hint\.className = 'tag param'/);
 });
 
+test('the rows that are not ticked keep their place in the order', async () => {
+  const script = await read('ui/app.js');
+  const source = script.match(/    const rows = \(\) => \{[\s\S]*?\n    \};/);
+  assert.ok(source, 'the page has no list of the rows any more');
+  // The list of the rows is every row of the page, the ones that are not
+  // ticked among them: a row that is turned off has to be written down as
+  // well, or it loses its place.
+  const rows = new Function('list', `${source[0]}\nreturn rows;`)({
+    querySelectorAll: () => ['codex', 'minimax', 'qoder-cn', '*'].map(value => ({
+      querySelector: () => ({ value, classList: { contains: name => name === 'follow' && value === '*' } }),
+    })),
+  });
+  assert.deepEqual(rows(), ['codex', 'minimax', 'qoder-cn']);
+});
+
+test('the order of the rows is kept when the way of choosing changes', async () => {
+  const script = await read('ui/app.js');
+  const source = script.match(/  const rowOrder = [\s\S]*?\n  \};/);
+  assert.ok(source, 'the page has no order of the rows any more');
+  const rowOrder = new Function(`${source[0]}\nreturn rowOrder;`)();
+  // The order the user gave is the whole order: a row that is turned off
+  // keeps its place, also when only the ticked ones are shown.
+  assert.deepEqual(
+    rowOrder({
+      subscriptionOrder: ['codex', 'minimax', 'qoder-cn'],
+      subscriptions: ['codex', 'qoder-cn'],
+      subscriptionHidden: ['minimax'],
+    }),
+    ['codex', 'minimax', 'qoder-cn'],
+  );
+  // A state of an older version has no order of its own: the list of the
+  // shown ones comes first, and the ones that are turned off after them.
+  assert.deepEqual(
+    rowOrder({ subscriptions: ['*', 'codex', 'qoder-cn'], subscriptionHidden: ['minimax'] }),
+    ['codex', 'qoder-cn', 'minimax'],
+  );
+});
+
+test('the refresh button asks the service for the list of the subscriptions', async () => {
+  const script = await read('ui/app.js');
+  const source = script.match(/  const refreshSubscriptions = async \(\) => \{[\s\S]*?\n  \};/);
+  assert.ok(source, 'the page has no refresh of the subscriptions any more');
+  const calls = [];
+  const api = async (route) => {
+    calls.push(route);
+    return { ok: true, subscriptions: [], shown: [], added: [], removed: [], hidden: [], observedAt: null };
+  };
+  const refresh = new Function(
+    'element', 'saveState', 'saveQueue', 'nameQueue', 'api', 'current',
+    'renderSubscriptions', 'renderWidgetCard', 'hidden', 'syncHidden', 'safeError',
+    `${source[0]}\nreturn refreshSubscriptions;`,
+  )(
+    () => null,
+    () => {},
+    Promise.resolve(),
+    Promise.resolve(),
+    api,
+    { display: {}, subscriptions: [] },
+    () => {},
+    () => {},
+    new Set(),
+    () => {},
+    (message, fallback) => message || fallback,
+  );
+  await refresh();
+  assert.deepEqual(calls, ['api/v1/console/subscriptions/refresh']);
+});
+
+test('a subscription that is turned off is not offered by the small widget', async () => {
+  const script = await read('ui/app.js');
+  const renderer = script.match(/  const renderWidgetCard = [\s\S]*?\n  \};/)[0];
+  const list = { children: [], replaceChildren() { this.children = []; }, append(row) { this.children.push(row); } };
+  const document = { createElement: () => ({ children: [], append(...children) { this.children.push(...children); } }) };
+  // The minimax subscription is turned off: it is not offered, or the small
+  // widget would say "not found" for it.
+  const render = new Function('document', 'element', 'node', 'saveState', 'text', 'hidden', `${renderer}\nreturn renderWidgetCard;`)(
+    document, () => list, document.createElement, () => {}, () => {}, new Set(['minimax']),
+  );
+  render({
+    subscriptions: [{ id: 'codex@example.com', provider: 'codex' }, { id: 'minimax', provider: 'minimax' }],
+    display: { subscriptions: ['*'] },
+  });
+  const offered = list.children.map(row => row.children[0]).filter(input => input.name === 'widget-card' && input.value).map(input => input.value);
+  assert.deepEqual(offered, ['codex@example.com']);
+});
+
 test('a device can be taken off the list', async () => {
   const page = await read('ui/index.html');
   const script = await read('ui/app.js');
@@ -410,10 +496,12 @@ test('the subscription rows can be dragged into another order', async () => {
   assert.match(page, /api\/v1\/console\/options/);
   // The rows are drawn in the order the user has given, not in the order the
   // gateway happens to list them. The rows that are turned off keep their
-  // place as well.
+  // place as well: the whole order is written down apart from the list of
+  // the shown ones.
   assert.match(page, /for \(const entry of order\)/);
-  assert.match(page, /\.\.\.\(state\.display\?\.subscriptions \|\| \[\]\)\.filter\(entry => entry !== '\*'\)/);
-  assert.match(page, /\.\.\.\(state\.display\?\.subscriptionHidden \|\| \[\]\)/);
+  assert.match(page, /const order = rowOrder\(state\.display \|\| \{\}\)/);
+  assert.match(page, /display\.subscriptionOrder/);
+  assert.match(page, /display\.subscriptionHidden/);
   assert.match(styles, /\.grip/);
 });
 

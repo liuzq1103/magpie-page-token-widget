@@ -37,6 +37,26 @@ import { pairingLeft, remainingText } from './timing.mjs';
     if (chosen.includes('*')) return true;
     return chosen.includes(id) || chosen.includes(family);
   };
+  // The order the rows are drawn in: the order the user gave, then the ones
+  // that are shown, then the ones that are turned off. The order the user
+  // gave is the whole order, and it is written down apart from the list of
+  // the shown ones: a row that is turned off keeps its place even when the
+  // list of the shown ones holds only the ones that are shown.
+  const rowOrder = (display = {}) => {
+    const seen = new Set();
+    const out = [];
+    const entries = [
+      ...(Array.isArray(display.subscriptionOrder) ? display.subscriptionOrder : []),
+      ...(Array.isArray(display.subscriptions) ? display.subscriptions : []).filter(entry => entry !== '*'),
+      ...(Array.isArray(display.subscriptionHidden) ? display.subscriptionHidden : []),
+    ];
+    for (const entry of entries) {
+      if (typeof entry !== 'string' || !entry || seen.has(entry)) continue;
+      seen.add(entry);
+      out.push(entry);
+    }
+    return out;
+  };
   // The cards the phone is shown, as the page understands them. The service
   // says it after a reading; after a change it is worked out here, so that
   // the picker of the small widget does not offer a card that is not there.
@@ -586,13 +606,12 @@ import { pairingLeft, remainingText } from './timing.mjs';
     // the gateway happens to list them.
     const ordered = [];
     const seen = new Set();
-    // The order of the rows is the order the phone follows. The rows that
-    // are turned off are written down after them: they are not shown, and
-    // the order of the ones that are shown is the order the user gave.
-    const order = [
-      ...(state.display?.subscriptions || []).filter(entry => entry !== '*'),
-      ...(state.display?.subscriptionHidden || []),
-    ];
+    // The order of the rows is the order the phone follows. The whole order
+    // is kept as it is: the rows that are turned off are written down after
+    // the ones that are shown, but the order the user gave is the one that
+    // is remembered, so a row that is turned off keeps its place even when
+    // the list of the shown ones is written down again.
+    const order = rowOrder(state.display || {});
     for (const entry of order) {
       for (const subscription of items) {
         const id = subscription.id;
@@ -705,7 +724,14 @@ import { pairingLeft, remainingText } from './timing.mjs';
             method: 'POST',
             // The subscriptions that were turned off go with it: they are
             // written down, so they do not come back by themselves.
-            body: JSON.stringify({ subscriptions: next, subscriptionHidden: [...hidden] }),
+            // The whole order of the rows goes with it as well: the list of
+            // the shown ones only holds the ones that are shown, and a row
+            // that is turned off would lose its place without it.
+            body: JSON.stringify({
+              subscriptions: next,
+              subscriptionHidden: [...hidden],
+              subscriptionOrder: rows(),
+            }),
           });
           // A response that comes back after a newer change was made is
           // about an older state: it does not overwrite the newer change,
@@ -913,6 +939,22 @@ import { pairingLeft, remainingText } from './timing.mjs';
       list.append(row);
     }
     modeNote(all);
+    // A subscription that the user turned off can be shown on the phone all
+    // the same: the widgets need something to show, and that floor is under
+    // the choice of the user. When it happens, the page says so: a card
+    // that comes back without being asked for is not a mystery.
+    const warning = element('subWarn');
+    if (warning) {
+      const onThePhone = new Set(Array.isArray(state.shown) ? state.shown : []);
+      const back = (state.subscriptions || []).filter((subscription) => {
+        const id = subscription?.id;
+        if (!id || !onThePhone.has(id)) return false;
+        return hidden.has(id) || hidden.has(subscription.provider || id);
+      });
+      warning.textContent = back.length
+        ? `你关掉的「${back.map(subscription => subscription.label || subscription.id).join('、')}」又在手机上出现了：手机上永远至少要留一家可看，勾上别的家以后它就会回去。`
+        : '';
+    }
     // The list of the subscriptions is read at a certain time. The page says
     // when, so that an old list is not passed for a new one.
     const reading = state.reading || {};
