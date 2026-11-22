@@ -7,3 +7,7 @@ Thumbs.db
 
 # The files that a sync tool leaves behind while it uploads.
 *.uploading.cfg
+
+# A file that a Windows tool leaves behind, and that no part of this plugin
+# reads. It stays on this computer and is not part of the package.
+NUL
