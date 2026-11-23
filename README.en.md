@@ -1,6 +1,6 @@
 # magpie-page-token-widget
 
-> English · [中文](README.md) · version 0.4.22 (see [CHANGELOG.md](CHANGELOG.md))
+> English · [中文](README.md) · version 0.4.23 (see [CHANGELOG.md](CHANGELOG.md))
 
 An iPhone home screen widget for Magpie, brought in as a plugin: install the plugin, scan a code, and the widget shows the remaining quota and the real token usage of every subscription Magpie knows — Codex, MiniMax, GLM, and whatever you add later.
 
